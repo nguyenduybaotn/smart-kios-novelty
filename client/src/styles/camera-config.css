@@ -1,0 +1,72 @@
+.cameraConfigPage .ant-alert{
+  margin-bottom:16px;
+  border-color:rgba(67,173,255,.42)!important;
+  background:#eaf6ff!important;
+}
+.cameraConfigPage .ant-alert-message{
+  color:#073b5c!important;
+  font-weight:800;
+}
+.cameraConfigPage .ant-alert-description,
+.cameraConfigPage .ant-alert-icon{
+  color:#185b7d!important;
+}
+.cameraConfigGrid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:16px;
+  margin-bottom:16px;
+}
+.cameraConfigSlot{
+  min-height:190px;
+  padding:18px;
+  border:1px solid rgba(143,255,208,.28);
+  border-radius:18px;
+  background:rgba(2,25,38,.76);
+  box-shadow:inset 0 0 22px rgba(0,159,189,.08);
+}
+.cameraConfigSlot h3{
+  margin:0 0 16px;
+  color:#8fffd0;
+}
+.cameraConfigSlot label{
+  display:block;
+  margin:12px 0 6px;
+  color:#eaffff;
+  font-weight:800;
+}
+.cameraConfigSlot .ant-select{
+  width:100%;
+}
+.cameraConfigSlot .ant-select-selector,
+.cameraConfigSlot .ant-select-selection-item,
+.cameraConfigSlot .ant-select-selection-placeholder{
+  color:#eaffff!important;
+}
+.cameraConfigSlot .ant-select-selection-placeholder{
+  opacity:.72;
+}
+.cameraConfigHint{
+  margin-top:14px;
+  padding:10px 12px;
+  color:#dffcff;
+  border-radius:12px;
+  background:rgba(0,103,177,.2);
+}
+.cameraConfigPage .ant-btn:not(.ant-btn-primary){
+  border-color:#82d2eb!important;
+  background:#f3fbff!important;
+  color:#063e5d!important;
+  font-weight:700;
+}
+.cameraConfigPage .ant-btn:not(.ant-btn-primary):hover{
+  border-color:#22b36f!important;
+  background:#ffffff!important;
+  color:#075f39!important;
+}
+@media(max-width:900px){
+  .cameraConfigGrid{grid-template-columns:1fr;}
+  .cameraConfigPage .ant-space,
+  .cameraConfigPage .ant-space-item,
+  .cameraConfigPage .ant-btn{width:100%;}
+}
