@@ -66,22 +66,21 @@ async function markSapoSyncError({idSapo,current,order,errorMessage}){
     .input('note',sql.NVarChar,asText(order?.note,1000))
     .input('error',sql.NVarChar,asText(errorMessage,2000));
   const rs=await request.query(`
-    MERGE Orders t USING(SELECT @id Id_Sapo)s ON t.Id_Sapo=s.Id_Sapo
-    WHEN MATCHED THEN UPDATE SET
-      OrderCode=COALESCE(@code,t.OrderCode),
-      CustomerName=COALESCE(@customer,t.CustomerName),
-      Phone=COALESCE(@phone,t.Phone),
-      Address=COALESCE(@address,t.Address),
-      Channel=COALESCE(@channel,t.Channel),
-      Status=COALESCE(@status,t.Status),
-      Note=COALESCE(@note,t.Note),
+    INSERT INTO Orders(Id_Sapo,OrderCode,CustomerName,Phone,Address,Channel,Status,Note,TrackingNumbers,SapoSyncError,UpdatedAt)
+    VALUES(@id,@code,@customer,@phone,@address,@channel,@status,@note,'',@error,CURRENT_TIMESTAMP)
+    ON CONFLICT(Id_Sapo) DO UPDATE SET
+      OrderCode=COALESCE(EXCLUDED.OrderCode,Orders.OrderCode),
+      CustomerName=COALESCE(EXCLUDED.CustomerName,Orders.CustomerName),
+      Phone=COALESCE(EXCLUDED.Phone,Orders.Phone),
+      Address=COALESCE(EXCLUDED.Address,Orders.Address),
+      Channel=COALESCE(EXCLUDED.Channel,Orders.Channel),
+      Status=COALESCE(EXCLUDED.Status,Orders.Status),
+      Note=COALESCE(EXCLUDED.Note,Orders.Note),
       TrackingNumbers='',
       SapoSyncedAt=NULL,
-      SapoSyncError=@error,
-      UpdatedAt=SYSUTCDATETIME()
-    WHEN NOT MATCHED THEN INSERT(Id_Sapo,OrderCode,CustomerName,Phone,Address,Channel,Status,Note,TrackingNumbers,SapoSyncError)
-      VALUES(@id,@code,@customer,@phone,@address,@channel,@status,@note,'',@error)
-    OUTPUT inserted.OrderId;`);
+      SapoSyncError=EXCLUDED.SapoSyncError,
+      UpdatedAt=CURRENT_TIMESTAMP
+    RETURNING OrderId;`);
   return {orderId:rs.recordset?.[0]?.OrderId, idSapo:String(idSapo), orderCode, error:errorMessage};
 }
 
@@ -120,45 +119,16 @@ async function fetchSapoOrderWithRateLimit(idSapo,{date,maxRetries=3}={}){
 export async function ensureSapoSchema(){
   const pool=await getPool();
   await pool.request().batch(`
-    IF COL_LENGTH('dbo.Orders','Id_Sapo') IS NULL ALTER TABLE dbo.Orders ADD Id_Sapo BIGINT NULL;
-    IF COL_LENGTH('dbo.Orders','TrackingNumbers') IS NULL ALTER TABLE dbo.Orders ADD TrackingNumbers NVARCHAR(2000) NULL;
-    IF COL_LENGTH('dbo.Orders','SapoSyncedAt') IS NULL ALTER TABLE dbo.Orders ADD SapoSyncedAt DATETIME2 NULL;
-    IF COL_LENGTH('dbo.Orders','SapoSyncError') IS NULL ALTER TABLE dbo.Orders ADD SapoSyncError NVARCHAR(2000) NULL;
-    IF COL_LENGTH('dbo.Orders','ErpOid') IS NULL ALTER TABLE dbo.Orders ADD ErpOid NVARCHAR(50) NULL;
-    IF COL_LENGTH('dbo.Orders','ErpOrderNo') IS NULL ALTER TABLE dbo.Orders ADD ErpOrderNo NVARCHAR(120) NULL;
-    IF COL_LENGTH('dbo.Orders','LoaiDonHang') IS NOT NULL
-      ALTER TABLE dbo.Orders ALTER COLUMN LoaiDonHang NVARCHAR(100) NULL;
-    ELSE
-      ALTER TABLE dbo.Orders ADD LoaiDonHang NVARCHAR(100) NULL;
-    IF COL_LENGTH('dbo.Orders','ErpProcessedAt') IS NULL ALTER TABLE dbo.Orders ADD ErpProcessedAt DATETIME2 NULL;
-    IF COL_LENGTH('dbo.Orders','ErpProcessResult') IS NULL ALTER TABLE dbo.Orders ADD ErpProcessResult NVARCHAR(2000) NULL;
-  `);
-  await pool.request().batch(`
-    IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='UX_Orders_Id_Sapo' AND object_id=OBJECT_ID('dbo.Orders')) CREATE UNIQUE INDEX UX_Orders_Id_Sapo ON dbo.Orders(Id_Sapo) WHERE Id_Sapo IS NOT NULL;
-
-    IF OBJECT_ID('dbo.SapoOrderPayloads','U') IS NULL CREATE TABLE dbo.SapoOrderPayloads(
-      OrderId INT PRIMARY KEY REFERENCES dbo.Orders(OrderId) ON DELETE CASCADE, Id_Sapo BIGINT NOT NULL,
-      FinancialStatus NVARCHAR(80), FulfillmentStatus NVARCHAR(80), Currency NVARCHAR(20),
-      TotalPrice DECIMAL(18,2), TotalDiscounts DECIMAL(18,2), ProcessedOn DATETIME2, ModifiedOn DATETIME2,
-      RawJson NVARCHAR(MAX) NOT NULL, SyncedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME());
-    IF OBJECT_ID('dbo.SapoCustomers','U') IS NULL CREATE TABLE dbo.SapoCustomers(
-      OrderId INT PRIMARY KEY REFERENCES dbo.Orders(OrderId) ON DELETE CASCADE, Id_Sapo BIGINT NULL,
-      Email NVARCHAR(255),Phone NVARCHAR(80),FirstName NVARCHAR(255),LastName NVARCHAR(255),RawJson NVARCHAR(MAX) NOT NULL);
-    IF OBJECT_ID('dbo.SapoAddresses','U') IS NULL CREATE TABLE dbo.SapoAddresses(
-      SapoAddressId BIGINT IDENTITY PRIMARY KEY,OrderId INT NOT NULL REFERENCES dbo.Orders(OrderId) ON DELETE CASCADE,
-      AddressType NVARCHAR(40),Address1 NVARCHAR(500),Address2 NVARCHAR(500),Ward NVARCHAR(255),District NVARCHAR(255),Province NVARCHAR(255),Country NVARCHAR(255),Phone NVARCHAR(80),RawJson NVARCHAR(MAX) NOT NULL);
-    IF OBJECT_ID('dbo.SapoLineItems','U') IS NULL CREATE TABLE dbo.SapoLineItems(
-      SapoLineItemId BIGINT PRIMARY KEY,OrderId INT NOT NULL REFERENCES dbo.Orders(OrderId) ON DELETE CASCADE,
-      ProductId BIGINT,VariantId BIGINT,SKU NVARCHAR(255),Barcode NVARCHAR(255),Name NVARCHAR(500),Quantity INT,Price DECIMAL(18,2),RawJson NVARCHAR(MAX) NOT NULL);
-    IF OBJECT_ID('dbo.SapoFulfillments','U') IS NULL CREATE TABLE dbo.SapoFulfillments(
-      SapoFulfillmentId BIGINT PRIMARY KEY,OrderId INT NOT NULL REFERENCES dbo.Orders(OrderId) ON DELETE CASCADE,
-      Status NVARCHAR(80),TrackingCompany NVARCHAR(255),TrackingNumbers NVARCHAR(2000),RawJson NVARCHAR(MAX) NOT NULL);
-    IF OBJECT_ID('dbo.SapoRefunds','U') IS NULL CREATE TABLE dbo.SapoRefunds(
-      SapoRefundId BIGINT PRIMARY KEY,OrderId INT NOT NULL REFERENCES dbo.Orders(OrderId) ON DELETE CASCADE,
-      Note NVARCHAR(1000),TotalRefunded DECIMAL(18,2),RawJson NVARCHAR(MAX) NOT NULL);
-    IF OBJECT_ID('dbo.SapoRelatedRecords','U') IS NULL CREATE TABLE dbo.SapoRelatedRecords(
-      SapoRelatedRecordId BIGINT IDENTITY PRIMARY KEY,OrderId INT NOT NULL REFERENCES dbo.Orders(OrderId) ON DELETE CASCADE,
-      RelationName NVARCHAR(120) NOT NULL,ParentSapoId BIGINT NULL,SourceSapoId BIGINT NULL,ItemIndex INT NOT NULL,RawJson NVARCHAR(MAX) NOT NULL);
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "Id_Sapo" BIGINT;
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "TrackingNumbers" VARCHAR(2000);
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "SapoSyncedAt" TIMESTAMP;
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "SapoSyncError" VARCHAR(2000);
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "ErpOid" VARCHAR(50);
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "ErpOrderNo" VARCHAR(120);
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "LoaiDonHang" VARCHAR(100);
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "ErpProcessedAt" TIMESTAMP;
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "ErpProcessResult" VARCHAR(2000);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_id_sapo ON "Orders"("Id_Sapo") WHERE "Id_Sapo" IS NOT NULL;
   `);
 }
 
@@ -168,7 +138,7 @@ async function addRelated(tx,orderId,name,records,parentId=null){
     await new sql.Request(tx).input('oid',sql.Int,orderId).input('name',sql.NVarChar,name)
       .input('parent',sql.BigInt,parentId == null ? null : String(parentId)).input('source',sql.BigInt,x?.id == null ? null : String(x.id))
       .input('idx',sql.Int,i).input('raw',sql.NVarChar(sql.MAX),asJson(x) || '{}')
-      .query('INSERT SapoRelatedRecords(OrderId,RelationName,ParentSapoId,SourceSapoId,ItemIndex,RawJson) VALUES(@oid,@name,@parent,@source,@idx,@raw)');
+      .query('INSERT INTO SapoRelatedRecords(OrderId,RelationName,ParentSapoId,SourceSapoId,ItemIndex,RawJson) VALUES(@oid,@name,@parent,@source,@idx,@raw)');
   }
 }
 
@@ -187,27 +157,36 @@ export async function saveSapoOrder(order, { erpOid, erpOrderNo, loaiDonHang }={
       .input('channel',sql.NVarChar,asText(order.source_name || order.source,100)).input('status',sql.NVarChar,asText(order.status || 'NEW',50))
       .input('note',sql.NVarChar,asText(order.note,1000)).input('tracks',sql.NVarChar,asText(tracks.join(','),2000))
       .input('loai',sql.NVarChar,loai).input('erpOid',sql.NVarChar,erpOidVal).input('erpOrderNo',sql.NVarChar,erpOrderNoVal).query(`
-        MERGE Orders t USING(SELECT @id Id_Sapo)s ON t.Id_Sapo=s.Id_Sapo
-        WHEN MATCHED THEN UPDATE SET
-          OrderCode=@code,CustomerName=@customer,Phone=@phone,Address=@address,Channel=@channel,
-          Status=@status,Note=@note,TrackingNumbers=@tracks,SapoSyncedAt=SYSUTCDATETIME(),SapoSyncError=NULL,
-          UpdatedAt=SYSUTCDATETIME(),LoaiDonHang=COALESCE(@loai,t.LoaiDonHang),
-          ErpOid=COALESCE(@erpOid,t.ErpOid),ErpOrderNo=COALESCE(@erpOrderNo,t.ErpOrderNo)
-        WHEN NOT MATCHED THEN INSERT(Id_Sapo,OrderCode,CustomerName,Phone,Address,Channel,Status,Note,TrackingNumbers,SapoSyncedAt,LoaiDonHang,ErpOid,ErpOrderNo)
-          VALUES(@id,@code,@customer,@phone,@address,@channel,@status,@note,@tracks,SYSUTCDATETIME(),@loai,@erpOid,@erpOrderNo)
-        OUTPUT inserted.OrderId;`);
+        INSERT INTO Orders(Id_Sapo,OrderCode,CustomerName,Phone,Address,Channel,Status,Note,TrackingNumbers,SapoSyncedAt,LoaiDonHang,ErpOid,ErpOrderNo,UpdatedAt)
+        VALUES(@id,@code,@customer,@phone,@address,@channel,@status,@note,@tracks,CURRENT_TIMESTAMP,@loai,@erpOid,@erpOrderNo,CURRENT_TIMESTAMP)
+        ON CONFLICT(Id_Sapo) DO UPDATE SET
+          OrderCode=EXCLUDED.OrderCode,
+          CustomerName=EXCLUDED.CustomerName,
+          Phone=EXCLUDED.Phone,
+          Address=EXCLUDED.Address,
+          Channel=EXCLUDED.Channel,
+          Status=EXCLUDED.Status,
+          Note=EXCLUDED.Note,
+          TrackingNumbers=EXCLUDED.TrackingNumbers,
+          SapoSyncedAt=CURRENT_TIMESTAMP,
+          SapoSyncError=NULL,
+          UpdatedAt=CURRENT_TIMESTAMP,
+          LoaiDonHang=COALESCE(EXCLUDED.LoaiDonHang,Orders.LoaiDonHang),
+          ErpOid=COALESCE(EXCLUDED.ErpOid,Orders.ErpOid),
+          ErpOrderNo=COALESCE(EXCLUDED.ErpOrderNo,Orders.ErpOrderNo)
+        RETURNING OrderId;`);
     const orderId=merged.recordset[0].OrderId;
-    for(const table of ['SapoRelatedRecords','SapoRefunds','SapoFulfillments','SapoLineItems','SapoAddresses','SapoCustomers','SapoOrderPayloads','OrderItems']) await new sql.Request(tx).input('id',sql.Int,orderId).query(`DELETE ${table} WHERE OrderId=@id`);
+    for(const table of ['SapoRelatedRecords','SapoRefunds','SapoFulfillments','SapoLineItems','SapoAddresses','SapoCustomers','SapoOrderPayloads','OrderItems']) await new sql.Request(tx).input('id',sql.Int,orderId).query(`DELETE FROM ${table} WHERE OrderId=@id`);
 
-    await new sql.Request(tx).input('oid',sql.Int,orderId).input('id',sql.BigInt,id).input('fin',sql.NVarChar,asText(order.financial_status,80)).input('ful',sql.NVarChar,asText(order.fulfillment_status,80)).input('cur',sql.NVarChar,asText(order.currency,20)).input('price',sql.Decimal(18,2),Number(order.total_price || 0)).input('discount',sql.Decimal(18,2),Number(order.total_discounts || 0)).input('processed',sql.DateTime2,asDate(order.processed_on)).input('modified',sql.DateTime2,asDate(order.modified_on)).input('raw',sql.NVarChar(sql.MAX),asJson(order)).query('INSERT SapoOrderPayloads(OrderId,Id_Sapo,FinancialStatus,FulfillmentStatus,Currency,TotalPrice,TotalDiscounts,ProcessedOn,ModifiedOn,RawJson) VALUES(@oid,@id,@fin,@ful,@cur,@price,@discount,@processed,@modified,@raw)');
-    if(order.customer) await new sql.Request(tx).input('oid',sql.Int,orderId).input('id',sql.BigInt,order.customer.id == null ? null : String(order.customer.id)).input('email',sql.NVarChar,asText(order.customer.email,255)).input('phone',sql.NVarChar,asText(order.customer.phone,80)).input('first',sql.NVarChar,asText(order.customer.first_name,255)).input('last',sql.NVarChar,asText(order.customer.last_name,255)).input('raw',sql.NVarChar(sql.MAX),asJson(order.customer)).query('INSERT SapoCustomers(OrderId,Id_Sapo,Email,Phone,FirstName,LastName,RawJson) VALUES(@oid,@id,@email,@phone,@first,@last,@raw)');
-    for(const [type,a] of [['shipping',order.shipping_address],['billing',order.billing_address]]) if(a) await new sql.Request(tx).input('oid',sql.Int,orderId).input('type',sql.NVarChar,type).input('a1',sql.NVarChar,asText(a.address1,500)).input('a2',sql.NVarChar,asText(a.address2,500)).input('ward',sql.NVarChar,asText(a.ward,255)).input('district',sql.NVarChar,asText(a.district,255)).input('province',sql.NVarChar,asText(a.province,255)).input('country',sql.NVarChar,asText(a.country || a.country_name,255)).input('phone',sql.NVarChar,asText(a.phone,80)).input('raw',sql.NVarChar(sql.MAX),asJson(a)).query('INSERT SapoAddresses(OrderId,AddressType,Address1,Address2,Ward,District,Province,Country,Phone,RawJson) VALUES(@oid,@type,@a1,@a2,@ward,@district,@province,@country,@phone,@raw)');
+    await new sql.Request(tx).input('oid',sql.Int,orderId).input('id',sql.BigInt,id).input('fin',sql.NVarChar,asText(order.financial_status,80)).input('ful',sql.NVarChar,asText(order.fulfillment_status,80)).input('cur',sql.NVarChar,asText(order.currency,20)).input('price',sql.Decimal(18,2),Number(order.total_price || 0)).input('discount',sql.Decimal(18,2),Number(order.total_discounts || 0)).input('processed',sql.DateTime2,asDate(order.processed_on)).input('modified',sql.DateTime2,asDate(order.modified_on)).input('raw',sql.NVarChar(sql.MAX),asJson(order)).query('INSERT INTO SapoOrderPayloads(OrderId,Id_Sapo,FinancialStatus,FulfillmentStatus,Currency,TotalPrice,TotalDiscounts,ProcessedOn,ModifiedOn,RawJson) VALUES(@oid,@id,@fin,@ful,@cur,@price,@discount,@processed,@modified,@raw)');
+    if(order.customer) await new sql.Request(tx).input('oid',sql.Int,orderId).input('id',sql.BigInt,order.customer.id == null ? null : String(order.customer.id)).input('email',sql.NVarChar,asText(order.customer.email,255)).input('phone',sql.NVarChar,asText(order.customer.phone,80)).input('first',sql.NVarChar,asText(order.customer.first_name,255)).input('last',sql.NVarChar,asText(order.customer.last_name,255)).input('raw',sql.NVarChar(sql.MAX),asJson(order.customer)).query('INSERT INTO SapoCustomers(OrderId,Id_Sapo,Email,Phone,FirstName,LastName,RawJson) VALUES(@oid,@id,@email,@phone,@first,@last,@raw)');
+    for(const [type,a] of [['shipping',order.shipping_address],['billing',order.billing_address]]) if(a) await new sql.Request(tx).input('oid',sql.Int,orderId).input('type',sql.NVarChar,type).input('a1',sql.NVarChar,asText(a.address1,500)).input('a2',sql.NVarChar,asText(a.address2,500)).input('ward',sql.NVarChar,asText(a.ward,255)).input('district',sql.NVarChar,asText(a.district,255)).input('province',sql.NVarChar,asText(a.province,255)).input('country',sql.NVarChar,asText(a.country || a.country_name,255)).input('phone',sql.NVarChar,asText(a.phone,80)).input('raw',sql.NVarChar(sql.MAX),asJson(a)).query('INSERT INTO SapoAddresses(OrderId,AddressType,Address1,Address2,Ward,District,Province,Country,Phone,RawJson) VALUES(@oid,@type,@a1,@a2,@ward,@district,@province,@country,@phone,@raw)');
     for(const item of order.line_items || []){
-      await new sql.Request(tx).input('id',sql.BigInt,String(item.id)).input('oid',sql.Int,orderId).input('product',sql.BigInt,item.product_id == null ? null : String(item.product_id)).input('variant',sql.BigInt,item.variant_id == null ? null : String(item.variant_id)).input('sku',sql.NVarChar,asText(item.sku,255)).input('barcode',sql.NVarChar,asText(item.barcode,255)).input('name',sql.NVarChar,asText(item.name || item.title,500)).input('qty',sql.Int,Number(item.quantity || 0)).input('price',sql.Decimal(18,2),Number(item.price || 0)).input('raw',sql.NVarChar(sql.MAX),asJson(item)).query('INSERT SapoLineItems(SapoLineItemId,OrderId,ProductId,VariantId,SKU,Barcode,Name,Quantity,Price,RawJson) VALUES(@id,@oid,@product,@variant,@sku,@barcode,@name,@qty,@price,@raw)');
-      await new sql.Request(tx).input('oid',sql.Int,orderId).input('sku',sql.NVarChar,asText(item.sku || `SAPO-${item.id}`,80)).input('barcode',sql.NVarChar,asText(item.barcode || item.sku,120)).input('name',sql.NVarChar,asText(item.name || item.title || `Sapo item ${item.id}`,255)).input('qty',sql.Int,Number(item.quantity || 1)).input('price',sql.Decimal(18,2),Number(item.price || 0)).query('INSERT OrderItems(OrderId,SKU,Barcode,ProductName,QtyExpected,UnitPrice) VALUES(@oid,@sku,@barcode,@name,@qty,@price)');
+      await new sql.Request(tx).input('id',sql.BigInt,String(item.id)).input('oid',sql.Int,orderId).input('product',sql.BigInt,item.product_id == null ? null : String(item.product_id)).input('variant',sql.BigInt,item.variant_id == null ? null : String(item.variant_id)).input('sku',sql.NVarChar,asText(item.sku,255)).input('barcode',sql.NVarChar,asText(item.barcode,255)).input('name',sql.NVarChar,asText(item.name || item.title,500)).input('qty',sql.Int,Number(item.quantity || 0)).input('price',sql.Decimal(18,2),Number(item.price || 0)).input('raw',sql.NVarChar(sql.MAX),asJson(item)).query('INSERT INTO SapoLineItems(SapoLineItemId,OrderId,ProductId,VariantId,SKU,Barcode,Name,Quantity,Price,RawJson) VALUES(@id,@oid,@product,@variant,@sku,@barcode,@name,@qty,@price,@raw)');
+      await new sql.Request(tx).input('oid',sql.Int,orderId).input('sku',sql.NVarChar,asText(item.sku || `SAPO-${item.id}`,80)).input('barcode',sql.NVarChar,asText(item.barcode || item.sku,120)).input('name',sql.NVarChar,asText(item.name || item.title || `Sapo item ${item.id}`,255)).input('qty',sql.Int,Number(item.quantity || 1)).input('price',sql.Decimal(18,2),Number(item.price || 0)).query('INSERT INTO OrderItems(OrderId,SKU,Barcode,ProductName,QtyExpected,UnitPrice) VALUES(@oid,@sku,@barcode,@name,@qty,@price)');
     }
-    for(const f of order.fulfillments || []){ const nums=getTrackingNumbers({fulfillments:[f]}); await new sql.Request(tx).input('id',sql.BigInt,String(f.id)).input('oid',sql.Int,orderId).input('status',sql.NVarChar,asText(f.status,80)).input('company',sql.NVarChar,asText(f.tracking_company || f.tracking_info?.tracking_company,255)).input('tracks',sql.NVarChar,asText(nums.join(','),2000)).input('raw',sql.NVarChar(sql.MAX),asJson(f)).query('INSERT SapoFulfillments(SapoFulfillmentId,OrderId,Status,TrackingCompany,TrackingNumbers,RawJson) VALUES(@id,@oid,@status,@company,@tracks,@raw)'); await addRelated(tx,orderId,'fulfillments.line_items',f.line_items,f.id); await addRelated(tx,orderId,'fulfillments.tracking_numbers',nums.map(value=>({value})),f.id); }
-    for(const r of order.refunds || []){ await new sql.Request(tx).input('id',sql.BigInt,String(r.id)).input('oid',sql.Int,orderId).input('note',sql.NVarChar,asText(r.note,1000)).input('total',sql.Decimal(18,2),Number(r.total_refunded || 0)).input('raw',sql.NVarChar(sql.MAX),asJson(r)).query('INSERT SapoRefunds(SapoRefundId,OrderId,Note,TotalRefunded,RawJson) VALUES(@id,@oid,@note,@total,@raw)'); await addRelated(tx,orderId,'refunds.refund_line_items',r.refund_line_items,r.id); await addRelated(tx,orderId,'refunds.transactions',r.transactions,r.id); await addRelated(tx,orderId,'refunds.order_adjustments',r.order_adjustments,r.id); }
+    for(const f of order.fulfillments || []){ const nums=getTrackingNumbers({fulfillments:[f]}); await new sql.Request(tx).input('id',sql.BigInt,String(f.id)).input('oid',sql.Int,orderId).input('status',sql.NVarChar,asText(f.status,80)).input('company',sql.NVarChar,asText(f.tracking_company || f.tracking_info?.tracking_company,255)).input('tracks',sql.NVarChar,asText(nums.join(','),2000)).input('raw',sql.NVarChar(sql.MAX),asJson(f)).query('INSERT INTO SapoFulfillments(SapoFulfillmentId,OrderId,Status,TrackingCompany,TrackingNumbers,RawJson) VALUES(@id,@oid,@status,@company,@tracks,@raw)'); await addRelated(tx,orderId,'fulfillments.line_items',f.line_items,f.id); await addRelated(tx,orderId,'fulfillments.tracking_numbers',nums.map(value=>({value})),f.id); }
+    for(const r of order.refunds || []){ await new sql.Request(tx).input('id',sql.BigInt,String(r.id)).input('oid',sql.Int,orderId).input('note',sql.NVarChar,asText(r.note,1000)).input('total',sql.Decimal(18,2),Number(r.total_refunded || 0)).input('raw',sql.NVarChar(sql.MAX),asJson(r)).query('INSERT INTO SapoRefunds(SapoRefundId,OrderId,Note,TotalRefunded,RawJson) VALUES(@id,@oid,@note,@total,@raw)'); await addRelated(tx,orderId,'refunds.refund_line_items',r.refund_line_items,r.id); await addRelated(tx,orderId,'refunds.transactions',r.transactions,r.id); await addRelated(tx,orderId,'refunds.order_adjustments',r.order_adjustments,r.id); }
     for(const name of ['shipping_lines','note_attributes','discount_codes','discount_applications','combination_lines','payment_gateway_names','tax_lines','current_tax_lines','invoices']) await addRelated(tx,orderId,name,order[name]);
     await tx.commit(); return {orderId,idSapo:id,orderCode:code,trackingNumbers:tracks};
   }catch(error){ await tx.rollback(); throw error; }

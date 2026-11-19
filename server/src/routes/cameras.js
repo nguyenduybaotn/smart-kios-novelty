@@ -28,7 +28,8 @@ router.post('/', async (req,res,next)=>{
       .input('DeviceHint',sql.NVarChar,b.deviceHint || null)
       .input('IsDefault',sql.Bit,!!b.isDefault)
       .query(`INSERT INTO Cameras(CameraCode,CameraName,ConnectionType,RtspUrl,DeviceHint,IsDefault)
-              OUTPUT inserted.* VALUES(@CameraCode,@CameraName,@ConnectionType,@RtspUrl,@DeviceHint,@IsDefault)`);
+              VALUES(@CameraCode,@CameraName,@ConnectionType,@RtspUrl,@DeviceHint,@IsDefault)
+              RETURNING *`);
     res.json(rs.recordset[0]);
   }catch(e){next(e)}
 });
@@ -52,7 +53,7 @@ router.delete('/:id', async (req,res,next)=>{
     if(refCheck.recordset[0].count > 0){
       await pool.request()
         .input('id', sql.Int, id)
-        .query("UPDATE Cameras SET IsActive=0, CameraCode=CameraCode + '_del_' + CAST(CameraId AS VARCHAR) WHERE CameraId=@id");
+        .query("UPDATE Cameras SET IsActive=false, CameraCode=CONCAT(CameraCode, '_del_', CameraId) WHERE CameraId=@id");
     } else {
       await pool.request()
         .input('id', sql.Int, id)

@@ -63,15 +63,15 @@ function removeCancelledVideo(filePath, sessionId){
 export async function ensurePackingDualCameraSchema(){
   const pool=await getPool();
   await pool.request().batch(`
-    IF COL_LENGTH('dbo.PackingSessions','CameraId2') IS NULL ALTER TABLE dbo.PackingSessions ADD CameraId2 INT NULL;
-    IF COL_LENGTH('dbo.PackingSessions','VideoPath2') IS NULL ALTER TABLE dbo.PackingSessions ADD VideoPath2 NVARCHAR(1000) NULL;
-    IF COL_LENGTH('dbo.PackingSessions','VideoFileName2') IS NULL ALTER TABLE dbo.PackingSessions ADD VideoFileName2 NVARCHAR(255) NULL;
-    IF COL_LENGTH('dbo.PackingSessions','VideoSizeBytes2') IS NULL ALTER TABLE dbo.PackingSessions ADD VideoSizeBytes2 BIGINT NULL;
-    IF COL_LENGTH('dbo.PackingSessions','CompositeMode') IS NULL ALTER TABLE dbo.PackingSessions ADD CompositeMode NVARCHAR(40) NULL;
-    IF COL_LENGTH('dbo.PackingSessions','SessionType') IS NULL ALTER TABLE dbo.PackingSessions ADD SessionType NVARCHAR(30) NOT NULL DEFAULT 'PACKING';
-    IF COL_LENGTH('dbo.PackingSessions','ReturnTrackingNumber') IS NULL ALTER TABLE dbo.PackingSessions ADD ReturnTrackingNumber NVARCHAR(255) NULL;
-    IF COL_LENGTH('dbo.PackingSessions','ReturnReason') IS NULL ALTER TABLE dbo.PackingSessions ADD ReturnReason NVARCHAR(500) NULL;
-    IF COL_LENGTH('dbo.Orders','ReturnTrackingNumber') IS NULL ALTER TABLE dbo.Orders ADD ReturnTrackingNumber NVARCHAR(255) NULL;
+    ALTER TABLE "PackingSessions" ADD COLUMN IF NOT EXISTS "CameraId2" INTEGER;
+    ALTER TABLE "PackingSessions" ADD COLUMN IF NOT EXISTS "VideoPath2" VARCHAR(1000);
+    ALTER TABLE "PackingSessions" ADD COLUMN IF NOT EXISTS "VideoFileName2" VARCHAR(255);
+    ALTER TABLE "PackingSessions" ADD COLUMN IF NOT EXISTS "VideoSizeBytes2" BIGINT;
+    ALTER TABLE "PackingSessions" ADD COLUMN IF NOT EXISTS "CompositeMode" VARCHAR(40);
+    ALTER TABLE "PackingSessions" ADD COLUMN IF NOT EXISTS "SessionType" VARCHAR(30) NOT NULL DEFAULT 'PACKING';
+    ALTER TABLE "PackingSessions" ADD COLUMN IF NOT EXISTS "ReturnTrackingNumber" VARCHAR(255);
+    ALTER TABLE "PackingSessions" ADD COLUMN IF NOT EXISTS "ReturnReason" VARCHAR(500);
+    ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "ReturnTrackingNumber" VARCHAR(255);
   `);
 }
 
@@ -81,25 +81,28 @@ router.get('/sessions', async (req,res,next)=>{
     const pool=await getPool(); 
     const q = `%${req.query.q || ''}%`;
     const rs=await pool.request().input('q',sql.NVarChar,q).query(`
-      SELECT TOP 300 ps.*, snap.FileName AS FirstSnapshotFileName, o.CustomerName AS OrderCustomerName, o.Phone AS OrderCustomerPhone, o.Channel, o.TrackingNumbers, o.ReturnTrackingNumber AS OrderReturnTrackingNumber, c.CameraName, c.ConnectionType, c2.CameraName AS CameraName2, c2.ConnectionType AS ConnectionType2
+      SELECT ps.*, 
+        (SELECT x.FileName FROM PackingSnapshots x WHERE x.SessionId=ps.SessionId ORDER BY x.CapturedAt ASC LIMIT 1) AS FirstSnapshotFileName,
+        o.CustomerName AS OrderCustomerName, o.Phone AS OrderCustomerPhone, o.Channel, o.TrackingNumbers, o.ReturnTrackingNumber AS OrderReturnTrackingNumber, 
+        c.CameraName, c.ConnectionType, c2.CameraName AS CameraName2, c2.ConnectionType AS ConnectionType2
       FROM PackingSessions ps
       LEFT JOIN Orders o ON ps.OrderId=o.OrderId
       LEFT JOIN Cameras c ON ps.CameraId=c.CameraId
       LEFT JOIN Cameras c2 ON ps.CameraId2=c2.CameraId
-      OUTER APPLY (SELECT TOP 1 FileName FROM PackingSnapshots x WHERE x.SessionId=ps.SessionId ORDER BY x.CapturedAt ASC) snap
       WHERE ps.OrderCode LIKE @q
-         OR ISNULL(ps.CustomerName, o.CustomerName) LIKE @q
-         OR ISNULL(ps.CustomerPhone, o.Phone) LIKE @q
-         OR ISNULL(o.TrackingNumbers,'') LIKE @q
-         OR ISNULL(ps.ReturnTrackingNumber,'') LIKE @q
-         OR ISNULL(o.ReturnTrackingNumber,'') LIKE @q
-         OR ISNULL(ps.SessionType,'') LIKE @q
-         OR ISNULL(ps.OperatorName,'') LIKE @q
-         OR ISNULL(ps.OperatorUsername,'') LIKE @q
-         OR ISNULL(c.CameraName,'') LIKE @q
-         OR ISNULL(c2.CameraName,'') LIKE @q
-         OR ISNULL(c.ConnectionType,'') LIKE @q
-      ORDER BY COALESCE(ps.CompletedAt, ps.StartedAt) DESC, ps.StartedAt DESC`); 
+         OR COALESCE(ps.CustomerName, o.CustomerName) LIKE @q
+         OR COALESCE(ps.CustomerPhone, o.Phone) LIKE @q
+         OR COALESCE(o.TrackingNumbers,'') LIKE @q
+         OR COALESCE(ps.ReturnTrackingNumber,'') LIKE @q
+         OR COALESCE(o.ReturnTrackingNumber,'') LIKE @q
+         OR COALESCE(ps.SessionType,'') LIKE @q
+         OR COALESCE(ps.OperatorName,'') LIKE @q
+         OR COALESCE(ps.OperatorUsername,'') LIKE @q
+         OR COALESCE(c.CameraName,'') LIKE @q
+         OR COALESCE(c2.CameraName,'') LIKE @q
+         OR COALESCE(c.ConnectionType,'') LIKE @q
+      ORDER BY COALESCE(ps.CompletedAt, ps.StartedAt) DESC, ps.StartedAt DESC
+      LIMIT 300`); 
     const rows = rs.recordset;
     for (const r of rows) {
       if ((r.DurationSeconds == null || r.DurationSeconds === 0) && r.VideoFileName) {
@@ -272,13 +275,12 @@ router.post('/cancel/:sessionId', async (req,res,next)=>{
       await transaction.request()
         .input('OrderId',sql.Int,s.OrderId)
         .input('SessionId',sql.UniqueIdentifier,sessionId)
-        .query(`UPDATE o
-                SET Status='PENDING', UpdatedAt=SYSUTCDATETIME()
-                FROM Orders o
-                WHERE o.OrderId=@OrderId AND o.Status='PACKING'
+        .query(`UPDATE Orders
+                SET Status='PENDING', UpdatedAt=CURRENT_TIMESTAMP
+                WHERE OrderId=@OrderId AND Status='PACKING'
                   AND NOT EXISTS (
                     SELECT 1 FROM PackingSessions activeSession
-                    WHERE activeSession.OrderId=o.OrderId
+                    WHERE activeSession.OrderId=Orders.OrderId
                       AND activeSession.SessionId<>@SessionId
                       AND activeSession.Status IN ('RECORDING','RECORDING_DIRECT','PAUSED')
                   )`);

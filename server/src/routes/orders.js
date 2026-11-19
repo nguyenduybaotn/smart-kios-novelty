@@ -17,17 +17,18 @@ router.get('/', async (req,res,next)=>{
     const pool = await getPool();
     const q = `%${req.query.q || ''}%`;
     const rs = await pool.request().input('q', sql.NVarChar, q).query(`
-      SELECT TOP 200 o.*, COUNT(i.OrderItemId) ItemCount, SUM(i.QtyExpected) TotalQty
+      SELECT o.*, COUNT(i.OrderItemId) AS "ItemCount", SUM(i.QtyExpected) AS "TotalQty"
       FROM Orders o LEFT JOIN OrderItems i ON o.OrderId=i.OrderId
       WHERE o.OrderCode LIKE @q 
-         OR ISNULL(o.CustomerName,'') LIKE @q 
-         OR ISNULL(o.TrackingNumbers,'') LIKE @q 
-         OR ISNULL(o.ReturnTrackingNumber,'') LIKE @q
-         OR CONVERT(NVARCHAR(30),o.Id_Sapo) LIKE @q
-         OR ISNULL(o.ErpOrderNo,'') LIKE @q
-         OR ISNULL(o.ErpOid,'') LIKE @q
+         OR COALESCE(o.CustomerName,'') LIKE @q 
+         OR COALESCE(o.TrackingNumbers,'') LIKE @q 
+         OR COALESCE(o.ReturnTrackingNumber,'') LIKE @q
+         OR CAST(COALESCE(o.Id_Sapo, 0) AS VARCHAR) LIKE @q
+         OR COALESCE(o.ErpOrderNo,'') LIKE @q
+         OR COALESCE(o.ErpOid,'') LIKE @q
       GROUP BY o.OrderId,o.OrderCode,o.Id_Sapo,o.TrackingNumbers,o.ReturnTrackingNumber,o.SapoSyncedAt,o.SapoSyncError,o.CustomerName,o.Phone,o.Address,o.Channel,o.Status,o.Note,o.CreatedAt,o.UpdatedAt,o.LoaiDonHang,o.ErpOid,o.ErpOrderNo,o.ErpProcessedAt,o.ErpProcessResult
-      ORDER BY o.CreatedAt DESC`);
+      ORDER BY o.CreatedAt DESC
+      LIMIT 200`);
     res.json(rs.recordset);
   }catch(e){next(e)}
 });
