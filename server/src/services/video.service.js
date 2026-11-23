@@ -118,14 +118,14 @@ export function startCompositeRecording({ sessionId, orderCode, mainRtspUrl, pip
   const outPath = path.resolve(path.join(getVideoDir(), fileName));
   const fileName2 = buildVideoName(`${orderCode}_camera2_original`, sessionId, 'mkv');
   const outPath2 = path.resolve(path.join(getVideoDir(), fileName2));
-  const crf = process.env.VIDEO_CRF || '23';
+  const crf = process.env.VIDEO_CRF || '24';
   const preset = process.env.VIDEO_PRESET || 'veryfast';
   const maxW = Number(process.env.VIDEO_MAX_WIDTH || 1280);
-  const configuredPipW = Number(process.env.VIDEO_PIP_WIDTH || 480);
-  const pipW = Math.max(2, Math.floor((Number.isFinite(configuredPipW) ? configuredPipW : 480) / 2) * 2);
+  const configuredPipW = Number(process.env.VIDEO_PIP_WIDTH || 420);
+  const pipW = Math.max(2, Math.floor((Number.isFinite(configuredPipW) ? configuredPipW : 420) / 2) * 2);
   const pipH = Math.round((pipW * 9 / 16) / 2) * 2;
-  const margin = Number(process.env.VIDEO_PIP_MARGIN || 24);
-  const filter = `[0:v]scale='min(${maxW},iw)':-2:flags=lanczos,${timestampFilter()}[main];[1:v]scale=${pipW}:${pipH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${pipW}:${pipH}:(iw-ow)/2:(ih-oh)/2,setsar=1[pip];[main][pip]overlay=main_w-overlay_w-${margin}:${margin}:format=auto[v]`;
+  const margin = Number(process.env.VIDEO_PIP_MARGIN || 20);
+  const filter = `[0:v]scale='min(${maxW},iw)':-2:flags=bicubic,${timestampFilter()}[main];[1:v]scale=${pipW}:${pipH}:force_original_aspect_ratio=increase:flags=bicubic,crop=${pipW}:${pipH}:(iw-ow)/2:(ih-oh)/2,setsar=1[pip];[main][pip]overlay=main_w-overlay_w-${margin}:${margin}:format=auto[v]`;
   const args = [
     '-y',
     '-rtsp_transport', 'tcp',
@@ -137,6 +137,7 @@ export function startCompositeRecording({ sessionId, orderCode, mainRtspUrl, pip
     '-c:v', 'libx264',
     '-preset', preset,
     '-crf', crf,
+    '-threads', '0',
     '-movflags', '+faststart',
     '-an',
     outPath,

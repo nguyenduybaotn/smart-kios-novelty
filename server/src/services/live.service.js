@@ -17,8 +17,8 @@ export function startHlsPreview({ sessionId, rtspUrl }){
   if(activeLive.has(sessionId)) return activeLive.get(sessionId);
   const liveDir = getLiveDir(sessionId);
   const playlist = path.join(liveDir, 'index.m3u8');
-  const maxW = Number(process.env.LIVE_MAX_WIDTH || 960);
-  const fps = Number(process.env.LIVE_FPS || 12);
+  const maxW = Number(process.env.LIVE_MAX_WIDTH || 640);
+  const fps = Number(process.env.LIVE_FPS || 8);
   const args = [
     '-rtsp_transport', 'tcp',
     '-i', rtspUrl,

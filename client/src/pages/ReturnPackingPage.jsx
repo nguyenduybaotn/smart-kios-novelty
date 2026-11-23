@@ -62,9 +62,12 @@ import {
 } from '../services/camera-config';
 
 function getBestMime() {
-  if (window.MediaRecorder?.isTypeSupported?.('video/webm;codecs=vp9')) return 'video/webm;codecs=vp9';
-  if (window.MediaRecorder?.isTypeSupported?.('video/webm;codecs=vp8')) return 'video/webm;codecs=vp8';
+  if (window.MediaRecorder?.isTypeSupported?.('video/mp4;codecs=avc1')) return 'video/mp4;codecs=avc1';
+  if (window.MediaRecorder?.isTypeSupported?.('video/mp4;codecs=h264')) return 'video/mp4;codecs=h264';
   if (window.MediaRecorder?.isTypeSupported?.('video/mp4')) return 'video/mp4';
+  if (window.MediaRecorder?.isTypeSupported?.('video/webm;codecs=h264')) return 'video/webm;codecs=h264';
+  if (window.MediaRecorder?.isTypeSupported?.('video/webm;codecs=vp8')) return 'video/webm;codecs=vp8';
+  if (window.MediaRecorder?.isTypeSupported?.('video/webm;codecs=vp9')) return 'video/webm;codecs=vp9';
   return 'video/webm';
 }
 
@@ -397,15 +400,16 @@ export default function ReturnPackingPage({ user, cameraConfig }) {
     pendingDirectUploadRef.current = null;
     const mimeType = getBestMime();
     const outputStream = startComposedCanvasStream();
-    const recorder = new MediaRecorder(outputStream, { mimeType, videoBitsPerSecond: mediaStreamRef2.current ? 5_500_000 : 2_800_000 });
+    const recorder = new MediaRecorder(outputStream, { mimeType, videoBitsPerSecond: mediaStreamRef2.current ? 2_800_000 : 2_000_000 });
     recorder.ondataavailable = e => { if (e.data?.size) chunksRef.current.push(e.data); };
     recorder.onerror = e => console.error('[Hàng hoàn][Camera chính] Lỗi MediaRecorder', e.error || e);
     const recorder2 = mediaStreamRef2.current
-      ? new MediaRecorder(mediaStreamRef2.current, { mimeType, videoBitsPerSecond: 25_000_000 })
+      ? new MediaRecorder(mediaStreamRef2.current, { mimeType, videoBitsPerSecond: 3_500_000 })
       : null;
     if (recorder2) {
       recorder2.ondataavailable = e => { if (e.data?.size) chunksRef2.current.push(e.data); };
       recorder2.onerror = e => console.error('[Hàng hoàn][Camera 2] Lỗi MediaRecorder', e.error || e);
+      console.info('[Hàng hoàn][Camera 2] Bắt đầu lưu video gốc (đã tối ưu bitrate)', mediaStreamRef2.current.getVideoTracks?.()[0]?.getSettings?.());
     }
     recorderRef.current = recorder;
     recorderRef2.current = recorder2;
@@ -425,28 +429,42 @@ export default function ReturnPackingPage({ user, cameraConfig }) {
     const pipVideo = videoRef2.current;
     const canvas = composedCanvasRef.current || document.createElement('canvas');
     composedCanvasRef.current = canvas;
-    const ctx = canvas.getContext('2d');
-    const draw = () => {
-      const w = mainVideo?.videoWidth || 1920;
-      const h = mainVideo?.videoHeight || 1080;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    
+    // Giới hạn FPS ở mức 25 FPS để tiết kiệm CPU tối đa
+    const fpsInterval = 1000 / 25;
+    let lastDrawTime = 0;
+
+    const draw = (now) => {
+      animationRef.current = requestAnimationFrame(draw);
+      if (now - lastDrawTime < fpsInterval) return;
+      lastDrawTime = now - ((now - lastDrawTime) % fpsInterval);
+
+      // Giới hạn kích thước canvas tối đa 1280x720 để nhẹ CPU
+      const rawW = mainVideo?.videoWidth || 1280;
+      const rawH = mainVideo?.videoHeight || 720;
+      const maxW = 1280;
+      const scaleDown = rawW > maxW ? maxW / rawW : 1;
+      const w = Math.round((rawW * scaleDown) / 2) * 2;
+      const h = Math.round((rawH * scaleDown) / 2) * 2;
+
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
       }
       ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
+      ctx.imageSmoothingQuality = 'medium';
       ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
       if (mainVideo?.videoWidth) drawCover(ctx, mainVideo, 0, 0, w, h);
       if (pipVideo?.videoWidth) {
-        const pipW = Math.round(w * 0.38);
+        const pipW = Math.round(w * 0.36);
         const pipH = Math.round(pipW * 9 / 16);
         const margin = Math.round(w * 0.02);
-        ctx.save();
-        ctx.shadowColor = 'rgba(0,0,0,.55)';
-        ctx.shadowBlur = 14;
-        ctx.fillStyle = 'rgba(0,0,0,.35)';
-        ctx.fillRect(w - pipW - margin - 6, margin - 6, pipW + 12, pipH + 12);
-        ctx.restore();
+
+        // Viền đen nhẹ (bỏ shadowBlur để không ngốn CPU)
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(w - pipW - margin - 3, margin - 3, pipW + 6, pipH + 6);
+
         drawCover(ctx, pipVideo, w - pipW - margin, margin, pipW, pipH);
         ctx.strokeStyle = '#fa8c16';
         ctx.lineWidth = Math.max(2, Math.round(w / 640));
@@ -454,18 +472,17 @@ export default function ReturnPackingPage({ user, cameraConfig }) {
       }
       const timeText = formatVideoTimestamp();
       const badgeText = `HÀNG HOÀN • ${currentReturnTracking || order?.OrderCode || ''} • ${timeText}`;
-      const fontSize = Math.max(20, Math.round(w / 50));
+      const fontSize = Math.max(18, Math.round(w / 50));
       ctx.font = `700 ${fontSize}px Arial`;
       const metrics = ctx.measureText(badgeText);
-      const tx = 24, ty = 28 + fontSize;
+      const tx = 20, ty = 24 + fontSize;
       ctx.fillStyle = 'rgba(212, 56, 13, 0.85)';
-      ctx.fillRect(tx - 12, ty - fontSize - 10, metrics.width + 24, fontSize + 20);
+      ctx.fillRect(tx - 10, ty - fontSize - 8, metrics.width + 20, fontSize + 16);
       ctx.fillStyle = '#ffffff';
       ctx.fillText(badgeText, tx, ty);
-      animationRef.current = requestAnimationFrame(draw);
     };
-    draw();
-    return canvas.captureStream(30);
+    animationRef.current = requestAnimationFrame(draw);
+    return canvas.captureStream(25);
   }
 
   // Bắt đầu quay clip kiểm tra hàng hoàn
