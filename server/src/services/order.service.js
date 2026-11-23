@@ -18,8 +18,42 @@ export async function getOrderByCode(code){
     LIMIT 1`);
   const order = orderRs.recordset[0];
   if(!order) return null;
-  const items = await pool.request().input('id', sql.Int, order.OrderId).query('SELECT * FROM OrderItems WHERE OrderId=@id ORDER BY OrderItemId');
-  return { ...order, items: items.recordset };
+
+  let items = (await pool.request().input('id', sql.Int, order.OrderId).query('SELECT * FROM OrderItems WHERE OrderId=@id ORDER BY OrderItemId')).recordset || [];
+
+  // Tự động phục hồi 1: Nếu OrderItems rỗng, lấy từ SapoLineItems đã lưu
+  if(items.length === 0){
+    const sapoItems = (await pool.request().input('id', sql.Int, order.OrderId).query('SELECT * FROM SapoLineItems WHERE OrderId=@id ORDER BY SapoLineItemId')).recordset || [];
+    if(sapoItems.length > 0){
+      for(const it of sapoItems){
+        await pool.request()
+          .input('oid', sql.Int, order.OrderId)
+          .input('sku', sql.NVarChar, it.SKU || `SAPO-${it.SapoLineItemId}`)
+          .input('barcode', sql.NVarChar, it.Barcode || it.SKU || '')
+          .input('name', sql.NVarChar, it.Name || it.SKU || '')
+          .input('qty', sql.Int, Number(it.Quantity || 1))
+          .input('price', sql.Decimal(18,2), Number(it.Price || 0))
+          .query('INSERT INTO OrderItems(OrderId, SKU, Barcode, ProductName, QtyExpected, UnitPrice) VALUES(@oid, @sku, @barcode, @name, @qty, @price)');
+      }
+      items = (await pool.request().input('id', sql.Int, order.OrderId).query('SELECT * FROM OrderItems WHERE OrderId=@id ORDER BY OrderItemId')).recordset || [];
+    }
+  }
+
+  // Tự động phục hồi 2: Nếu vẫn rỗng và đơn có Id_Sapo, tự động gọi API Sapo để kéo sản phẩm về
+  if(items.length === 0 && order.Id_Sapo){
+    try {
+      const { fetchSapoOrder, saveSapoOrder } = await import('./sapo.service.js');
+      const sapoOrder = await fetchSapoOrder(order.Id_Sapo);
+      if(sapoOrder && sapoOrder.line_items?.length > 0){
+        await saveSapoOrder(sapoOrder);
+        items = (await pool.request().input('id', sql.Int, order.OrderId).query('SELECT * FROM OrderItems WHERE OrderId=@id ORDER BY OrderItemId')).recordset || [];
+      }
+    } catch(fetchErr){
+      console.warn(`[Auto-fetch Sapo items for ${order.OrderCode} warning]:`, fetchErr.message);
+    }
+  }
+
+  return { ...order, items };
 }
 
 export async function mapReturnTracking(orderCode, returnTrackingNumber, returnReason = null){
