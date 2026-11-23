@@ -7,7 +7,7 @@ server/node_modules/
 
 # Production build
 dist/
-client/dist/
+# client/dist/ (Giữ lại client/dist để máy khác không cần build client)
 
 # Local configuration and secrets
 .env
@@ -22,8 +22,12 @@ server/storage/*
 !server/storage/.gitkeep
 storage/
 
+# Large database dumps
+VisionAIKiosk_backup.sql
+
 # Archive files
 *.zip
+!VisionAIKiosk_backup.zip
 *.tar.gz
 *.rar
 *.7z

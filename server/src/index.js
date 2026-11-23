@@ -81,10 +81,23 @@ app.use('/live', express.static(path.resolve(path.join(storageDir, 'live')), {
     res.setHeader('Cache-Control', 'no-store');
   }
 }));
-app.get('/api/health', (_,res)=>res.json({ ok:true, app:'Vision AI Kiosk POS', time:new Date().toISOString() }));
+app.use('/api/health', (_,res)=>res.json({ ok:true, app:'Vision AI Kiosk POS', time:new Date().toISOString() }));
 app.use('/api/auth', auth);
 app.use('/api/orders', requireAuth, orders);
 app.use('/api/cameras', requireAuth, cameras);
 app.use('/api/packing', requireAuth, packing);
+
+// Phục vụ giao diện người dùng Production đã đóng gói từ client/dist
+const clientDist = path.resolve('../client/dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/videos') || req.path.startsWith('/snapshots') || req.path.startsWith('/live')) {
+      return next();
+    }
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
 app.use((err,req,res,next)=>{ console.error(err); res.status(500).json({ message: err.message || 'Server error' }); });
 app.listen(port, ()=>console.log(`Vision AI Kiosk server: http://localhost:${port}`));
