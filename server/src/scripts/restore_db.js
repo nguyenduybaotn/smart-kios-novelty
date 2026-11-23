@@ -81,6 +81,11 @@ async function main() {
   });
   await dbClient.connect();
 
+  // Tạm tắt kiểm tra ràng buộc ngoại (FK) trong phiên nạp để tránh cảnh báo bản ghi mồ côi
+  try {
+    await dbClient.query("SET session_replication_role = 'replica';");
+  } catch (_) {}
+
   const fileStats = fs.statSync(sqlFile);
   const totalBytes = fileStats.size;
   let readBytes = 0;
@@ -146,6 +151,11 @@ async function main() {
   console.log(`  - Đơn hàng:  ${ordersCount} đơn`);
   console.log(`  - Camera:    ${camerasCount} camera`);
   console.log(`  - Tài khoản: ${usersCount} người dùng`);
+
+  // Khôi phục lại trạng thái kiểm tra ràng buộc ban đầu
+  try {
+    await dbClient.query("SET session_replication_role = 'origin';");
+  } catch (_) {}
 
   await dbClient.end();
 
