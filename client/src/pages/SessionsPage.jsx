@@ -20,7 +20,9 @@ import {
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DeleteOutlined,
   DownloadOutlined,
+  ExclamationCircleOutlined,
   EyeOutlined,
   PictureOutlined,
   PlayCircleOutlined,
@@ -33,7 +35,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
-import { API_BASE, getSessions, getSnapshots } from '../services/api';
+import { API_BASE, cleanupOldVideos, getSessions, getSnapshots } from '../services/api';
 
 dayjs.extend(isBetween);
 
@@ -56,6 +58,7 @@ const videoDownloadUrl = (row, fileName, source = 'main') => {
 export default function SessionsPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [deletingOld, setDeletingOld] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionTypeFilter, setSessionTypeFilter] = useState('ALL'); // 'ALL' | 'PACKING' | 'RETURN'
   const [dateRange, setDateRange] = useState(null); // [dayjs, dayjs] or null
@@ -86,6 +89,40 @@ export default function SessionsPage() {
         message.error(err.response?.data?.message || 'Không thể tải lịch sử video');
       })
       .finally(() => setLoading(false));
+  };
+
+  const handleCleanupOldVideos = () => {
+    Modal.confirm({
+      title: 'Xác nhận xóa video lưu trữ trên 90 ngày?',
+      icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />,
+      content: (
+        <div style={{ marginTop: 8 }}>
+          <p>Hệ thống sẽ quét và <b>xóa vĩnh viễn toàn bộ các file video</b> (Camera chính & Camera 2) có ngày ghi hình <b>trên 90 ngày</b> so với hiện tại để giải phóng dung lượng ổ đĩa.</p>
+          <p style={{ color: '#888', fontSize: 13, marginBottom: 0 }}>
+            ℹ️ <i>Lưu ý: Lịch sử đơn hàng, thông tin phiên đóng gói và ảnh chụp (snapshots) vẫn được lưu giữ nguyên vẹn trên hệ thống.</i>
+          </p>
+        </div>
+      ),
+      okText: 'Xác nhận xóa',
+      okType: 'danger',
+      cancelText: 'Hủy bỏ',
+      async onOk() {
+        setDeletingOld(true);
+        try {
+          const res = await cleanupOldVideos(90);
+          if (res.deletedFilesCount > 0) {
+            message.success(`Đã xóa thành công ${res.deletedFilesCount} file video (> 90 ngày), giải phóng ${res.freedMB} MB dung lượng ổ đĩa!`);
+          } else {
+            message.info('Không có file video nào cũ hơn 90 ngày cần xóa.');
+          }
+          fetchSessions();
+        } catch (err) {
+          message.error(err.response?.data?.message || err.message || 'Không thể dọn dẹp video cũ');
+        } finally {
+          setDeletingOld(false);
+        }
+      }
+    });
   };
 
   useEffect(() => {
@@ -220,9 +257,20 @@ export default function SessionsPage() {
           </div>
         }
         extra={
-          <Button icon={<ReloadOutlined />} onClick={fetchSessions} loading={loading}>
-            Làm mới
-          </Button>
+          <Space>
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              loading={deletingOld}
+              onClick={handleCleanupOldVideos}
+              style={{ borderRadius: 6 }}
+            >
+              Xóa video &gt; 90 ngày
+            </Button>
+            <Button icon={<ReloadOutlined />} onClick={fetchSessions} loading={loading}>
+              Làm mới
+            </Button>
+          </Space>
         }
       >
         {/* Bộ lọc thanh công cụ: Segmented + RangePicker + Search Input */}

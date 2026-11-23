@@ -38,6 +38,7 @@ export async function completeDirectPacking(sessionId, blob, durationSeconds=0, 
   return (await api.post(`/packing/complete-direct/${sessionId}`, fd)).data;
 }
 export async function getSessions(q=''){ return (await api.get('/packing/sessions',{params:{q}})).data; }
+export async function cleanupOldVideos(days=90){ return (await api.post('/packing/cleanup-old-videos', { days })).data; }
 
 export async function scanProduct(orderCode, barcode){ return (await api.post(`/orders/${encodeURIComponent(orderCode)}/scan-product`, { barcode })).data; }
 export async function resolveSku(barcode){ return (await api.get(`/orders/resolve-sku/${encodeURIComponent(barcode)}`)).data; }

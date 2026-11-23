@@ -404,4 +404,110 @@ router.post('/complete-direct/:sessionId', directVideoUpload.fields([{name:'vide
   }catch(e){ cleanupDirectUploads(req); next(e) }
 });
 
+router.post('/cleanup-old-videos', async (req, res, next) => {
+  try {
+    const days = Math.max(1, Number(req.body?.days || 90));
+    const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const pool = await getPool();
+    const videoDir = path.resolve(getVideoDir());
+
+    // 1. Lấy danh sách các phiên có video đã tạo trước mốc ngày cutoff
+    const rs = await pool.request()
+      .input('cutoff', sql.DateTime2, cutoffDate)
+      .query(`SELECT SessionId, OrderCode, VideoPath, VideoFileName, VideoPath2, VideoFileName2, VideoSizeBytes, VideoSizeBytes2, StartedAt, CompletedAt
+              FROM PackingSessions
+              WHERE (VideoFileName IS NOT NULL OR VideoFileName2 IS NOT NULL OR VideoPath IS NOT NULL OR VideoPath2 IS NOT NULL)
+                AND COALESCE(CompletedAt, StartedAt) < @cutoff`);
+
+    const sessions = rs.recordset || [];
+    let deletedFilesCount = 0;
+    let freedBytes = 0;
+    const handledFiles = new Set();
+
+    // 2. Xóa các file video vật lý tương ứng trên ổ cứng
+    for (const s of sessions) {
+      const candidates = [
+        s.VideoPath && fs.existsSync(s.VideoPath) ? path.resolve(s.VideoPath) : null,
+        s.VideoFileName ? path.resolve(path.join(videoDir, s.VideoFileName)) : null,
+        s.VideoPath2 && fs.existsSync(s.VideoPath2) ? path.resolve(s.VideoPath2) : null,
+        s.VideoFileName2 ? path.resolve(path.join(videoDir, s.VideoFileName2)) : null
+      ].filter(Boolean);
+
+      for (const targetFile of candidates) {
+        if (handledFiles.has(targetFile)) continue;
+        handledFiles.add(targetFile);
+
+        const rel = path.relative(videoDir, targetFile);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+
+        try {
+          if (fs.existsSync(targetFile) && fs.statSync(targetFile).isFile()) {
+            const size = fs.statSync(targetFile).size || 0;
+            fs.unlinkSync(targetFile);
+            deletedFilesCount++;
+            freedBytes += size;
+          }
+        } catch (fileErr) {
+          console.warn(`[Cleanup] Không thể xóa file ${targetFile}:`, fileErr.message);
+        }
+      }
+    }
+
+    // 3. Cập nhật trạng thái trong Database để giao diện không còn trỏ tới file đã xóa
+    if (sessions.length > 0) {
+      await pool.request()
+        .input('cutoff', sql.DateTime2, cutoffDate)
+        .query(`UPDATE PackingSessions
+                SET VideoPath = NULL,
+                    VideoFileName = NULL,
+                    VideoPath2 = NULL,
+                    VideoFileName2 = NULL,
+                    VideoSizeBytes = NULL,
+                    VideoSizeBytes2 = NULL,
+                    Note = COALESCE(Note || ' ', '') || '[Đã dọn dẹp video > 90 ngày]'
+                WHERE (VideoFileName IS NOT NULL OR VideoFileName2 IS NOT NULL OR VideoPath IS NOT NULL OR VideoPath2 IS NOT NULL)
+                  AND COALESCE(CompletedAt, StartedAt) < @cutoff`);
+    }
+
+    // 4. Quét thêm các file video mồ côi (orphaned files) trong thư mục storage nếu cũ hơn 90 ngày
+    try {
+      if (fs.existsSync(videoDir)) {
+        const diskFiles = fs.readdirSync(videoDir);
+        for (const fname of diskFiles) {
+          const ext = path.extname(fname).toLowerCase();
+          if (['.mp4', '.webm', '.mkv'].includes(ext)) {
+            const fpath = path.resolve(path.join(videoDir, fname));
+            if (!handledFiles.has(fpath) && fs.existsSync(fpath)) {
+              const stat = fs.statSync(fpath);
+              if (stat.mtime < cutoffDate) {
+                fs.unlinkSync(fpath);
+                deletedFilesCount++;
+                freedBytes += stat.size || 0;
+                handledFiles.add(fpath);
+              }
+            }
+          }
+        }
+      }
+    } catch (orphanErr) {
+      console.warn('[Cleanup] Lỗi quét file mồ côi:', orphanErr.message);
+    }
+
+    const freedMB = Number((freedBytes / (1024 * 1024)).toFixed(2));
+    console.info(`[Cleanup] Đã dọn dẹp ${deletedFilesCount} file video (> ${days} ngày), giải phóng ${freedMB} MB`);
+
+    res.json({
+      success: true,
+      days,
+      cutoffDate,
+      deletedSessionsCount: sessions.length,
+      deletedFilesCount,
+      freedBytes,
+      freedMB
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;
