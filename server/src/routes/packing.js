@@ -101,20 +101,23 @@ router.get('/sessions', async (req,res,next)=>{
          OR COALESCE(c.CameraName,'') LIKE @q
          OR COALESCE(c2.CameraName,'') LIKE @q
          OR COALESCE(c.ConnectionType,'') LIKE @q
-      ORDER BY COALESCE(ps.CompletedAt, ps.StartedAt) DESC, ps.StartedAt DESC
-      LIMIT 300`); 
+      ORDER BY COALESCE(ps.CompletedAt, ps.StartedAt) DESC, ps.StartedAt DESC`); 
     const rows = rs.recordset;
+    let probeCount = 0;
     for (const r of rows) {
       if ((r.DurationSeconds == null || r.DurationSeconds === 0) && r.VideoFileName) {
-        const vPath = r.VideoPath && fs.existsSync(r.VideoPath) ? r.VideoPath : path.join(getVideoDir(), r.VideoFileName);
-        const dur = getVideoDurationInSeconds(vPath);
-        if (dur != null && dur > 0) {
-          r.DurationSeconds = dur;
-          pool.request()
-            .input('SessionId', sql.UniqueIdentifier, r.SessionId)
-            .input('DurationSeconds', sql.Int, dur)
-            .query('UPDATE PackingSessions SET DurationSeconds=@DurationSeconds WHERE SessionId=@SessionId')
-            .catch(() => null);
+        if (probeCount < 20) {
+          const vPath = r.VideoPath && fs.existsSync(r.VideoPath) ? r.VideoPath : path.join(getVideoDir(), r.VideoFileName);
+          const dur = getVideoDurationInSeconds(vPath);
+          if (dur != null && dur > 0) {
+            r.DurationSeconds = dur;
+            pool.request()
+              .input('SessionId', sql.UniqueIdentifier, r.SessionId)
+              .input('DurationSeconds', sql.Int, dur)
+              .query('UPDATE PackingSessions SET DurationSeconds=@DurationSeconds WHERE SessionId=@SessionId')
+              .catch(() => null);
+          }
+          probeCount++;
         }
       }
     }

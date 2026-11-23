@@ -331,7 +331,12 @@ export default function SessionsPage() {
           dataSource={filteredRows}
           loading={loading}
           scroll={{ x: 1380 }}
-          pagination={{ pageSize: 15, showTotal: (total, range) => `${range[0]}-${range[1]} của ${total} video` }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            pageSizeOptions: ['15', '20', '50', '100', '200'],
+            showTotal: (total, range) => `${range[0]}-${range[1]} của ${total} video`
+          }}
           className="sessionsTable"
           locale={{ emptyText: <Empty description="Chưa có video phù hợp" /> }}
           columns={[
