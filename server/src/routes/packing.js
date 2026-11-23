@@ -268,7 +268,7 @@ router.post('/cancel/:sessionId', async (req,res,next)=>{
         .input('SessionId',sql.UniqueIdentifier,sessionId)
         .input('Note',sql.NVarChar(1000),cancelNote)
         .query(`UPDATE PackingSessions
-                SET Status='FAILED', CompletedAt=COALESCE(CompletedAt,SYSUTCDATETIME()),
+                SET Status='FAILED', CompletedAt=COALESCE(CompletedAt,CURRENT_TIMESTAMP),
                     VideoPath=NULL, VideoFileName=NULL, VideoPath2=NULL, VideoFileName2=NULL,
                     VideoSizeBytes=NULL, VideoSizeBytes2=NULL, CompositeMode=NULL, Note=@Note
                 WHERE SessionId=@SessionId AND Status<>'COMPLETED'`);

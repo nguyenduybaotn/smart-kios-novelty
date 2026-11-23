@@ -87,3 +87,47 @@ export function videoDevicePreference(device,prefix=''){
     [`directGroupId${prefix}`]:device?.groupId || ''
   };
 }
+
+export async function acquireUserMediaStream(constraints, { retries = 2, delayMs = 500 } = {}) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (err) {
+      lastError = err;
+      const isNotReadable = err?.name === 'NotReadableError' || err?.name === 'TrackStartError';
+      if (attempt < retries) {
+        await new Promise(res => setTimeout(res, delayMs));
+        continue;
+      }
+      if (constraints?.video?.deviceId?.exact) {
+        try {
+          const targetId = constraints.video.deviceId.exact;
+          const relaxed = {
+            ...constraints,
+            video: {
+              ...constraints.video,
+              deviceId: targetId
+            }
+          };
+          delete relaxed.video.deviceId.exact;
+          return await navigator.mediaDevices.getUserMedia(relaxed);
+        } catch (_) {}
+      }
+      if (isNotReadable) {
+        throw new Error(
+          'Camera đang bị ứng dụng khác chiếm dụng (ví dụ: Zalo, Zoom, Teams, Camera Windows, hoặc một tab trình duyệt khác). ' +
+          'Vui lòng đóng các ứng dụng đó hoặc rút cắm lại cổng USB camera rồi thử lại.'
+        );
+      }
+      if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
+        throw new Error('Trình duyệt chưa được cấp quyền sử dụng Camera. Hãy kiểm tra cài đặt Privacy của Windows và Chrome.');
+      }
+      if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        throw new Error('Không tìm thấy thiết bị Camera được kết nối.');
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}

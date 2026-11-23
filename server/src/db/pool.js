@@ -243,17 +243,25 @@ export async function getPool() {
   return poolWrapperInstance;
 }
 
+// Helper tạo type shim tương thích mssql (cho phép vừa là function: sql.NVarChar(50), vừa là property: sql.NVarChar)
+function makeSqlType(name) {
+  const fn = (..._args) => name;
+  fn.toString = () => name;
+  fn.valueOf = () => name;
+  return fn;
+}
+
 // Type shims tương thích với cú pháp import { sql } từ 'mssql'
 export const sql = {
-  NVarChar: 'VARCHAR',
-  VarChar: 'VARCHAR',
-  Text: 'TEXT',
-  Int: 'INTEGER',
-  BigInt: 'BIGINT',
-  Bit: 'BOOLEAN',
-  Decimal: () => 'NUMERIC',
-  DateTime2: 'TIMESTAMP',
-  UniqueIdentifier: 'UUID',
+  NVarChar: makeSqlType('VARCHAR'),
+  VarChar: makeSqlType('VARCHAR'),
+  Text: makeSqlType('TEXT'),
+  Int: makeSqlType('INTEGER'),
+  BigInt: makeSqlType('BIGINT'),
+  Bit: makeSqlType('BOOLEAN'),
+  Decimal: makeSqlType('NUMERIC'),
+  DateTime2: makeSqlType('TIMESTAMP'),
+  UniqueIdentifier: makeSqlType('UUID'),
   MAX: 'MAX',
   Request: PgRequest,
   Transaction: PgTransaction

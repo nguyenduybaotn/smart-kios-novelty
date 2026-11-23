@@ -8,7 +8,7 @@ import { API_BASE, addCamera, addUser, cancelPacking, completeDirectPacking, com
 import CameraConfigPage from './pages/CameraConfigPage';
 import ReturnPackingPage from './pages/ReturnPackingPage';
 import SessionsPage from './pages/SessionsPage';
-import { enumerateVideoDevices, findSavedVideoDevice, loadCameraConfig } from './services/camera-config';
+import { acquireUserMediaStream, enumerateVideoDevices, findSavedVideoDevice, loadCameraConfig } from './services/camera-config';
 import './styles/app.css';
 
 const formatDateTime = value => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-';
@@ -304,14 +304,14 @@ function PackingPage({ user, cameraConfig }) {
     const videoConstraint = mainDeviceId
       ? { deviceId: { exact: mainDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
       : { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } };
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await acquireUserMediaStream({
       video: videoConstraint,
       audio: false
     });
     mediaStreamRef.current = stream;
     if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play().catch(() => { }); }
     if (pipDeviceId && pipDeviceId !== mainDeviceId) {
-      const stream2 = await navigator.mediaDevices.getUserMedia({
+      const stream2 = await acquireUserMediaStream({
         video: {
           deviceId: { exact: pipDeviceId },
           width: { ideal: 1920 },
