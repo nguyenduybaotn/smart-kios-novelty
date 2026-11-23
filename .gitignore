@@ -6,8 +6,8 @@ server/node_modules/
 .pnp.js
 
 # Production build
-dist/
-# client/dist/ (Giữ lại client/dist để máy khác không cần build client)
+/dist/
+!client/dist/**
 
 # Local configuration and secrets
 .env

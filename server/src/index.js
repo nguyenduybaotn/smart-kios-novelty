@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import orders from './routes/orders.js';
 import cameras from './routes/cameras.js';
 import packing from './routes/packing.js';
@@ -88,15 +89,32 @@ app.use('/api/cameras', requireAuth, cameras);
 app.use('/api/packing', requireAuth, packing);
 
 // Phục vụ giao diện người dùng Production đã đóng gói từ client/dist
-const clientDist = path.resolve('../client/dist');
-if (fs.existsSync(clientDist)) {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const clientDistCandidates = [
+  path.resolve(__dirname, '../../client/dist'),
+  path.resolve('../client/dist'),
+  path.resolve('./client/dist')
+];
+const clientDist = clientDistCandidates.find(d => fs.existsSync(d) && fs.existsSync(path.join(d, 'index.html')));
+
+if (clientDist) {
+  console.log(`[Static] Phục vụ giao diện Kiosk từ: ${clientDist}`);
   app.use(express.static(clientDist));
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/videos') || req.path.startsWith('/snapshots') || req.path.startsWith('/live')) {
+    if (
+      req.path.startsWith('/api') ||
+      req.path.startsWith('/assets') ||
+      req.path.startsWith('/videos') ||
+      req.path.startsWith('/snapshots') ||
+      req.path.startsWith('/live')
+    ) {
       return next();
     }
     res.sendFile(path.join(clientDist, 'index.html'));
   });
+} else {
+  console.warn('[Static] Cảnh báo: Không tìm thấy thư mục client/dist đã build');
 }
 
 app.use((err,req,res,next)=>{ console.error(err); res.status(500).json({ message: err.message || 'Server error' }); });
