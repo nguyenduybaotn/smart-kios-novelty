@@ -20,8 +20,8 @@ if %errorlevel% neq 0 (
 
 :: 2. Kiem tra thu vien server
 if not exist "node_modules" (
-    echo [INFO] Dang cai dat thu vien can thiet...
-    call npm install
+    echo [INFO] Dang cai dat thu vien can thiet tu npmjs.org...
+    call npm install --registry=https://registry.npmjs.org
 )
 
 :: 3. Khoi dong Backend Server

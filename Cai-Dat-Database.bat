@@ -20,8 +20,8 @@ if %errorlevel% neq 0 (
 
 :: Kiem tra node_modules
 if not exist "node_modules" (
-    echo [INFO] Dang cai dat thu vien server...
-    call npm install
+    echo [INFO] Dang cai dat thu vien server tu npmjs.org...
+    call npm install --registry=https://registry.npmjs.org
 )
 
 :: Chay script nap database bang Node.js
