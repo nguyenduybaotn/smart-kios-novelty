@@ -713,71 +713,165 @@ export default function SessionsPage() {
       {/* 5. Modal Xóa danh sách video */}
       <Modal
         title={
-          <Space style={{ color: '#ff4d4f' }}>
-            <DeleteOutlined />
+          <Space style={{ color: '#ff4d4f', fontSize: 17, fontWeight: 700 }}>
+            <DeleteOutlined style={{ fontSize: 20 }} />
             <span>Xóa danh sách video & Dữ liệu cũ</span>
           </Space>
         }
         open={deleteModalOpen}
         onCancel={() => !deleting && setDeleteModalOpen(false)}
         footer={null}
+        width={560}
         destroyOnClose
       >
-        <div style={{ marginTop: 12 }}>
-          <p style={{ color: '#ccc', fontSize: 14 }}>
+        <div style={{ marginTop: 14 }}>
+          <p style={{ color: '#90b2c8', fontSize: 14, marginBottom: 16 }}>
             Chọn phạm vi dữ liệu video bạn muốn dọn dẹp hoặc xóa khỏi hệ thống:
           </p>
-          <Radio.Group
-            value={deleteScope}
-            onChange={e => setDeleteScope(e.target.value)}
-            style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}
-          >
-            <Radio value="all">
-              <span style={{ fontSize: 14 }}>
-                <b>Xóa toàn bộ danh sách video</b> (Làm trống 100% lịch sử video)
-              </span>
-            </Radio>
-            <Radio value="90">
-              <span style={{ fontSize: 14 }}>
-                <b>Xóa video cũ hơn 90 ngày</b> (So với ngày hiện tại)
-              </span>
-            </Radio>
-            <Radio value="60">
-              <span style={{ fontSize: 14 }}>
-                <b>Xóa video cũ hơn 60 ngày</b> (So với ngày hiện tại)
-              </span>
-            </Radio>
-            <Radio value="30">
-              <span style={{ fontSize: 14 }}>
-                <b>Xóa video cũ hơn 30 ngày</b> (So với ngày hiện tại)
-              </span>
-            </Radio>
-          </Radio.Group>
 
-          <div style={{ padding: '12px 16px', background: 'rgba(255, 77, 79, 0.08)', borderRadius: 8, border: '1px solid rgba(255, 77, 79, 0.2)', marginBottom: 20 }}>
-            <Checkbox
-              checked={deleteWithFiles}
-              onChange={e => setDeleteWithFiles(e.target.checked)}
-            >
-              <span style={{ fontSize: 13, color: '#ff7875' }}>
-                Đồng thời xóa sạch file video vật lý trên ổ cứng để giải phóng dung lượng GB
-              </span>
-            </Checkbox>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+            {[
+              {
+                key: 'all',
+                title: 'Xóa toàn bộ danh sách video',
+                desc: 'Làm trống 100% lịch sử phiên video trong cơ sở dữ liệu',
+                badge: 'Toàn bộ',
+                badgeColor: 'red'
+              },
+              {
+                key: '90',
+                title: 'Xóa video cũ hơn 90 ngày',
+                desc: 'Chỉ xóa các clip có ngày ghi hình cách đây trên 90 ngày',
+                badge: '> 90 ngày',
+                badgeColor: 'cyan'
+              },
+              {
+                key: '60',
+                title: 'Xóa video cũ hơn 60 ngày',
+                desc: 'Chỉ xóa các clip có ngày ghi hình cách đây trên 60 ngày',
+                badge: '> 60 ngày',
+                badgeColor: 'blue'
+              },
+              {
+                key: '30',
+                title: 'Xóa video cũ hơn 30 ngày',
+                desc: 'Chỉ xóa các clip có ngày ghi hình cách đây trên 30 ngày',
+                badge: '> 30 ngày',
+                badgeColor: 'geekblue'
+              }
+            ].map(opt => {
+              const isSelected = deleteScope === opt.key;
+              return (
+                <div
+                  key={opt.key}
+                  onClick={() => setDeleteScope(opt.key)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    padding: '12px 16px',
+                    borderRadius: 12,
+                    cursor: 'pointer',
+                    background: isSelected ? 'rgba(0, 229, 255, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                    border: isSelected ? '1px solid #00e5ff' : '1px solid rgba(255, 255, 255, 0.12)',
+                    boxShadow: isSelected ? '0 0 16px rgba(0, 229, 255, 0.22)' : 'none',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: '50%',
+                      border: isSelected ? '6px solid #00e5ff' : '2px solid rgba(255, 255, 255, 0.35)',
+                      background: isSelected ? '#fff' : 'transparent',
+                      transition: 'all 0.2s ease',
+                      flexShrink: 0
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#ffffff' }}>
+                        {opt.title}
+                      </span>
+                      <Tag color={isSelected ? opt.badgeColor : 'default'} style={{ borderRadius: 6, margin: 0, fontWeight: 500 }}>
+                        {opt.badge}
+                      </Tag>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#88a6bc', marginTop: 3 }}>
+                      {opt.desc}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            <Button disabled={deleting} onClick={() => setDeleteModalOpen(false)}>
+          <div
+            onClick={() => setDeleteWithFiles(!deleteWithFiles)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '14px 16px',
+              background: 'rgba(255, 77, 79, 0.10)',
+              borderRadius: 12,
+              border: '1px solid rgba(255, 77, 79, 0.32)',
+              cursor: 'pointer',
+              marginBottom: 24,
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 5,
+                border: deleteWithFiles ? 'none' : '2px solid rgba(255, 77, 79, 0.6)',
+                background: deleteWithFiles ? '#ff4d4f' : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: 'bold',
+                flexShrink: 0
+              }}
+            >
+              {deleteWithFiles && '✓'}
+            </div>
+            <span style={{ fontSize: 13, color: '#ff9c9e', fontWeight: 500, userSelect: 'none' }}>
+              Đồng thời xóa sạch file video vật lý trên ổ cứng để giải phóng dung lượng ổ đĩa (GB)
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 16 }}>
+            <Button
+              disabled={deleting}
+              onClick={() => setDeleteModalOpen(false)}
+              style={{
+                borderRadius: 8,
+                background: 'rgba(255, 255, 255, 0.08)',
+                borderColor: 'rgba(255, 255, 255, 0.2)',
+                color: '#eaffff'
+              }}
+            >
               Hủy bỏ
             </Button>
             <Popconfirm
-              title="Xác nhận thực hiện xóa?"
+              title="Xác nhận thực hiện xóa dữ liệu?"
               description="Dữ liệu sau khi xóa sẽ không thể phục hồi. Bạn có chắc chắn muốn xóa không?"
               onConfirm={handleConfirmDeleteList}
               okText="Đồng ý xóa"
               cancelText="Hủy"
               okButtonProps={{ danger: true, loading: deleting }}
             >
-              <Button danger type="primary" loading={deleting} icon={<DeleteOutlined />}>
+              <Button
+                className="dangerActionBtn"
+                loading={deleting}
+                icon={<DeleteOutlined />}
+                style={{ borderRadius: 8, height: 38, padding: '0 20px', fontWeight: 600 }}
+              >
                 Bắt đầu xóa
               </Button>
             </Popconfirm>
