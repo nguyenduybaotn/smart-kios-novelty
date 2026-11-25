@@ -16,11 +16,11 @@ function safeSqlName(value, label){
 async function getErpPool(){
   if(erpPool?.connected) return erpPool;
   erpPool=new sql.ConnectionPool({
-    server:required('ERP_SQL_SERVER'),
-    port:Number(process.env.ERP_SQL_PORT || 1433),
-    database:required('ERP_SQL_DATABASE'),
-    user:required('ERP_SQL_USER'),
-    password:required('ERP_SQL_PASSWORD'),
+    server: process.env.ERP_SQL_SERVER || '192.168.0.69',
+    port: Number(process.env.ERP_SQL_PORT || 1636),
+    database: process.env.ERP_SQL_DATABASE || 'N-ERP',
+    user: process.env.ERP_SQL_USER || 'leanerp',
+    password: process.env.ERP_SQL_PASSWORD || 'leanerp123456',
     options:{
       encrypt:String(process.env.ERP_SQL_ENCRYPT || 'false').toLowerCase()==='true',
       trustServerCertificate:String(process.env.ERP_SQL_TRUST_CERT || 'true').toLowerCase()==='true'
