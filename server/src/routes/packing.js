@@ -513,4 +513,131 @@ router.post('/cleanup-old-videos', async (req, res, next) => {
   }
 });
 
+// Xóa danh sách video & dữ liệu phiên đóng gói (hỗ trợ xóa tất cả, theo mốc ngày hoặc theo danh sách ID)
+router.post('/delete-sessions', async (req, res, next) => {
+  try {
+    const pool = await getPool();
+    const rawPool = pool.rawPool || pool;
+    const videoDir = path.resolve(getVideoDir());
+    const snapshotDir = path.resolve(getSnapshotDir());
+    const { sessionIds, scope = 'all', days, deleteFiles = true } = req.body || {};
+
+    let targetSessions = [];
+
+    if (Array.isArray(sessionIds) && sessionIds.length > 0) {
+      const placeholders = sessionIds.map((_, i) => `$${i + 1}`).join(',');
+      const rs = await rawPool.query(
+        `SELECT ps."SessionId", ps."VideoPath", ps."VideoFileName", ps."VideoPath2", ps."VideoFileName2",
+                ps."StartedAt", ps."CompletedAt",
+                array_agg(sn."FilePath") FILTER (WHERE sn."FilePath" IS NOT NULL) AS "Snapshots"
+         FROM "PackingSessions" ps
+         LEFT JOIN "PackingSnapshots" sn ON ps."SessionId" = sn."SessionId"
+         WHERE ps."SessionId" IN (${placeholders})
+         GROUP BY ps."SessionId"`,
+        sessionIds
+      );
+      targetSessions = rs.rows || [];
+    } else {
+      let cutoffClause = '';
+      const params = [];
+      let numDays = null;
+      if (days && !isNaN(Number(days))) numDays = Number(days);
+      else if (scope === '30') numDays = 30;
+      else if (scope === '60') numDays = 60;
+      else if (scope === '90') numDays = 90;
+
+      if (numDays !== null && numDays > 0) {
+        const cutoffDate = new Date(Date.now() - numDays * 24 * 60 * 60 * 1000);
+        cutoffClause = 'WHERE COALESCE(ps."CompletedAt", ps."StartedAt") < $1';
+        params.push(cutoffDate);
+      }
+
+      const rs = await rawPool.query(
+        `SELECT ps."SessionId", ps."VideoPath", ps."VideoFileName", ps."VideoPath2", ps."VideoFileName2",
+                ps."StartedAt", ps."CompletedAt",
+                array_agg(sn."FilePath") FILTER (WHERE sn."FilePath" IS NOT NULL) AS "Snapshots"
+         FROM "PackingSessions" ps
+         LEFT JOIN "PackingSnapshots" sn ON ps."SessionId" = sn."SessionId"
+         ${cutoffClause}
+         GROUP BY ps."SessionId"`,
+        params
+      );
+      targetSessions = rs.rows || [];
+    }
+
+    if (targetSessions.length === 0) {
+      return res.json({ success: true, deletedCount: 0, freedBytes: 0, freedMB: 0 });
+    }
+
+    let freedBytes = 0;
+    let deletedFilesCount = 0;
+    const handledFiles = new Set();
+
+    if (deleteFiles) {
+      for (const s of targetSessions) {
+        const videoFiles = [
+          s.VideoPath && fs.existsSync(s.VideoPath) ? path.resolve(s.VideoPath) : null,
+          s.VideoFileName ? path.resolve(path.join(videoDir, s.VideoFileName)) : null,
+          s.VideoPath2 && fs.existsSync(s.VideoPath2) ? path.resolve(s.VideoPath2) : null,
+          s.VideoFileName2 ? path.resolve(path.join(videoDir, s.VideoFileName2)) : null
+        ].filter(Boolean);
+
+        for (const vf of videoFiles) {
+          if (handledFiles.has(vf)) continue;
+          handledFiles.add(vf);
+          const rel = path.relative(videoDir, vf);
+          if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+          try {
+            if (fs.existsSync(vf) && fs.statSync(vf).isFile()) {
+              const sz = fs.statSync(vf).size || 0;
+              fs.unlinkSync(vf);
+              freedBytes += sz;
+              deletedFilesCount++;
+            }
+          } catch (_) {}
+        }
+
+        const snaps = Array.isArray(s.Snapshots) ? s.Snapshots : [];
+        for (const snap of snaps) {
+          if (!snap) continue;
+          const snapPath = path.resolve(snap);
+          if (handledFiles.has(snapPath)) continue;
+          handledFiles.add(snapPath);
+          try {
+            if (fs.existsSync(snapPath) && fs.statSync(snapPath).isFile()) {
+              const sz = fs.statSync(snapPath).size || 0;
+              fs.unlinkSync(snapPath);
+              freedBytes += sz;
+              deletedFilesCount++;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    const idsToDelete = targetSessions.map(s => s.SessionId);
+    await rawPool.query(
+      `DELETE FROM "PackingSnapshots" WHERE "SessionId" = ANY($1::uuid[])`,
+      [idsToDelete]
+    );
+    const delRes = await rawPool.query(
+      `DELETE FROM "PackingSessions" WHERE "SessionId" = ANY($1::uuid[])`,
+      [idsToDelete]
+    );
+
+    const freedMB = Number((freedBytes / (1024 * 1024)).toFixed(2));
+    console.info(`[DeleteSessions] Đã xóa ${delRes.rowCount || idsToDelete.length} phiên video (${freedMB} MB)`);
+
+    res.json({
+      success: true,
+      deletedCount: delRes.rowCount || idsToDelete.length,
+      deletedFilesCount,
+      freedBytes,
+      freedMB
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 export default router;

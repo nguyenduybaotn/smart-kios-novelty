@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
+  Checkbox,
   Col,
   DatePicker,
   Empty,
   Image,
   Input,
   Modal,
+  Popconfirm,
+  Radio,
   Row,
   Segmented,
   Space,
@@ -35,7 +38,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
-import { API_BASE, cleanupOldVideos, getSessions, getSnapshots } from '../services/api';
+import { API_BASE, cleanupOldVideos, deleteSessions, getSessions, getSnapshots } from '../services/api';
 
 dayjs.extend(isBetween);
 
@@ -62,6 +65,13 @@ export default function SessionsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sessionTypeFilter, setSessionTypeFilter] = useState('ALL'); // 'ALL' | 'PACKING' | 'RETURN'
   const [dateRange, setDateRange] = useState(null); // [dayjs, dayjs] or null
+
+  // Chọn dòng và xóa danh sách video
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteScope, setDeleteScope] = useState('all');
+  const [deleteWithFiles, setDeleteWithFiles] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   // Snapshots modal
   const [snapOpen, setSnapOpen] = useState(false);
@@ -123,6 +133,37 @@ export default function SessionsPage() {
         }
       }
     });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!selectedRowKeys.length) return;
+    setDeleting(true);
+    try {
+      const res = await deleteSessions({ sessionIds: selectedRowKeys, deleteFiles: true });
+      message.success(`Đã xóa thành công ${res.deletedCount} video đã chọn${res.freedMB > 0 ? `, giải phóng ${res.freedMB} MB ổ đĩa` : ''}!`);
+      setSelectedRowKeys([]);
+      fetchSessions();
+    } catch (err) {
+      message.error(err.response?.data?.message || err.message || 'Không thể xóa các video đã chọn');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleConfirmDeleteList = async () => {
+    setDeleting(true);
+    try {
+      const res = await deleteSessions({ scope: deleteScope, deleteFiles: deleteWithFiles });
+      const scopeText = deleteScope === 'all' ? 'toàn bộ' : `cũ hơn ${deleteScope} ngày`;
+      message.success(`Đã xóa thành công ${res.deletedCount} video (${scopeText})${res.freedMB > 0 ? `, giải phóng ${res.freedMB} MB dung lượng ổ đĩa` : ''}!`);
+      setDeleteModalOpen(false);
+      setSelectedRowKeys([]);
+      fetchSessions();
+    } catch (err) {
+      message.error(err.response?.data?.message || err.message || 'Không thể xóa danh sách video');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   useEffect(() => {
@@ -258,14 +299,27 @@ export default function SessionsPage() {
         }
         extra={
           <Space>
+            {selectedRowKeys.length > 0 && (
+              <Popconfirm
+                title={`Xác nhận xóa ${selectedRowKeys.length} video đã chọn?`}
+                description="Hành động này sẽ xóa dữ liệu và các file video được chọn."
+                onConfirm={handleDeleteSelected}
+                okText="Đồng ý xóa"
+                cancelText="Hủy"
+                okButtonProps={{ danger: true, loading: deleting }}
+              >
+                <Button danger icon={<DeleteOutlined />} loading={deleting}>
+                  Xóa {selectedRowKeys.length} video đã chọn
+                </Button>
+              </Popconfirm>
+            )}
             <Button
               danger
               icon={<DeleteOutlined />}
-              loading={deletingOld}
-              onClick={handleCleanupOldVideos}
+              onClick={() => setDeleteModalOpen(true)}
               style={{ borderRadius: 6 }}
             >
-              Xóa video &gt; 90 ngày
+              Xóa danh sách video
             </Button>
             <Button icon={<ReloadOutlined />} onClick={fetchSessions} loading={loading}>
               Làm mới
@@ -328,6 +382,10 @@ export default function SessionsPage() {
         {/* Bảng dữ liệu video */}
         <Table
           rowKey="SessionId"
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys
+          }}
           dataSource={filteredRows}
           loading={loading}
           scroll={{ x: 1380 }}
@@ -650,6 +708,81 @@ export default function SessionsPage() {
             ))}
           </div>
         )}
+      </Modal>
+
+      {/* 5. Modal Xóa danh sách video */}
+      <Modal
+        title={
+          <Space style={{ color: '#ff4d4f' }}>
+            <DeleteOutlined />
+            <span>Xóa danh sách video & Dữ liệu cũ</span>
+          </Space>
+        }
+        open={deleteModalOpen}
+        onCancel={() => !deleting && setDeleteModalOpen(false)}
+        footer={null}
+        destroyOnClose
+      >
+        <div style={{ marginTop: 12 }}>
+          <p style={{ color: '#ccc', fontSize: 14 }}>
+            Chọn phạm vi dữ liệu video bạn muốn dọn dẹp hoặc xóa khỏi hệ thống:
+          </p>
+          <Radio.Group
+            value={deleteScope}
+            onChange={e => setDeleteScope(e.target.value)}
+            style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}
+          >
+            <Radio value="all">
+              <span style={{ fontSize: 14 }}>
+                <b>Xóa toàn bộ danh sách video</b> (Làm trống 100% lịch sử video)
+              </span>
+            </Radio>
+            <Radio value="90">
+              <span style={{ fontSize: 14 }}>
+                <b>Xóa video cũ hơn 90 ngày</b> (So với ngày hiện tại)
+              </span>
+            </Radio>
+            <Radio value="60">
+              <span style={{ fontSize: 14 }}>
+                <b>Xóa video cũ hơn 60 ngày</b> (So với ngày hiện tại)
+              </span>
+            </Radio>
+            <Radio value="30">
+              <span style={{ fontSize: 14 }}>
+                <b>Xóa video cũ hơn 30 ngày</b> (So với ngày hiện tại)
+              </span>
+            </Radio>
+          </Radio.Group>
+
+          <div style={{ padding: '12px 16px', background: 'rgba(255, 77, 79, 0.08)', borderRadius: 8, border: '1px solid rgba(255, 77, 79, 0.2)', marginBottom: 20 }}>
+            <Checkbox
+              checked={deleteWithFiles}
+              onChange={e => setDeleteWithFiles(e.target.checked)}
+            >
+              <span style={{ fontSize: 13, color: '#ff7875' }}>
+                Đồng thời xóa sạch file video vật lý trên ổ cứng để giải phóng dung lượng GB
+              </span>
+            </Checkbox>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <Button disabled={deleting} onClick={() => setDeleteModalOpen(false)}>
+              Hủy bỏ
+            </Button>
+            <Popconfirm
+              title="Xác nhận thực hiện xóa?"
+              description="Dữ liệu sau khi xóa sẽ không thể phục hồi. Bạn có chắc chắn muốn xóa không?"
+              onConfirm={handleConfirmDeleteList}
+              okText="Đồng ý xóa"
+              cancelText="Hủy"
+              okButtonProps={{ danger: true, loading: deleting }}
+            >
+              <Button danger type="primary" loading={deleting} icon={<DeleteOutlined />}>
+                Bắt đầu xóa
+              </Button>
+            </Popconfirm>
+          </div>
+        </div>
       </Modal>
     </div>
   );
