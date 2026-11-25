@@ -160,9 +160,18 @@ async function main() {
   console.log(`  - Camera:    ${camerasCount} camera`);
   console.log(`  - Tài khoản: ${usersCount} người dùng`);
 
-  // Khôi phục lại trạng thái kiểm tra ràng buộc ban đầu và lấp đầy UpdatedAt
+  // Khôi phục lại trạng thái kiểm tra ràng buộc ban đầu, lấp đầy UpdatedAt và gắn sequence cho các bảng Sapo
   try {
     await dbClient.query('UPDATE "Orders" SET "UpdatedAt" = COALESCE("UpdatedAt", "CreatedAt", CURRENT_TIMESTAMP) WHERE "UpdatedAt" IS NULL;');
+    await dbClient.query(`
+      CREATE SEQUENCE IF NOT EXISTS "SapoAddresses_SapoAddressId_seq";
+      ALTER TABLE IF EXISTS "SapoAddresses" ALTER COLUMN "SapoAddressId" SET DEFAULT nextval('"SapoAddresses_SapoAddressId_seq"');
+      SELECT setval('"SapoAddresses_SapoAddressId_seq"', GREATEST(COALESCE((SELECT MAX("SapoAddressId") FROM "SapoAddresses"), 0) + 1, nextval('"SapoAddresses_SapoAddressId_seq"')), false);
+
+      CREATE SEQUENCE IF NOT EXISTS "SapoRelatedRecords_SapoRelatedRecordId_seq";
+      ALTER TABLE IF EXISTS "SapoRelatedRecords" ALTER COLUMN "SapoRelatedRecordId" SET DEFAULT nextval('"SapoRelatedRecords_SapoRelatedRecordId_seq"');
+      SELECT setval('"SapoRelatedRecords_SapoRelatedRecordId_seq"', GREATEST(COALESCE((SELECT MAX("SapoRelatedRecordId") FROM "SapoRelatedRecords"), 0) + 1, nextval('"SapoRelatedRecords_SapoRelatedRecordId_seq"')), false);
+    `);
     await dbClient.query("SET session_replication_role = 'origin';");
   } catch (_) {}
 

@@ -129,7 +129,20 @@ export async function ensureSapoSchema(){
     ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "ErpProcessedAt" TIMESTAMP;
     ALTER TABLE "Orders" ADD COLUMN IF NOT EXISTS "ErpProcessResult" VARCHAR(2000);
     CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_id_sapo ON "Orders"("Id_Sapo") WHERE "Id_Sapo" IS NOT NULL;
+
+    CREATE SEQUENCE IF NOT EXISTS "SapoAddresses_SapoAddressId_seq";
+    ALTER TABLE "SapoAddresses" ALTER COLUMN "SapoAddressId" SET DEFAULT nextval('"SapoAddresses_SapoAddressId_seq"');
+
+    CREATE SEQUENCE IF NOT EXISTS "SapoRelatedRecords_SapoRelatedRecordId_seq";
+    ALTER TABLE "SapoRelatedRecords" ALTER COLUMN "SapoRelatedRecordId" SET DEFAULT nextval('"SapoRelatedRecords_SapoRelatedRecordId_seq"');
   `);
+
+  try {
+    await pool.request().batch(`
+      SELECT setval('"SapoAddresses_SapoAddressId_seq"', GREATEST(COALESCE((SELECT MAX("SapoAddressId") FROM "SapoAddresses"), 0) + 1, nextval('"SapoAddresses_SapoAddressId_seq"')), false);
+      SELECT setval('"SapoRelatedRecords_SapoRelatedRecordId_seq"', GREATEST(COALESCE((SELECT MAX("SapoRelatedRecordId") FROM "SapoRelatedRecords"), 0) + 1, nextval('"SapoRelatedRecords_SapoRelatedRecordId_seq"')), false);
+    `);
+  } catch (_) {}
 }
 
 async function addRelated(tx,orderId,name,records,parentId=null){
