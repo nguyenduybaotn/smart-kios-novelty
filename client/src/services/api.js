@@ -21,7 +21,7 @@ export async function getOrder(code){ return (await api.get(`/orders/${encodeURI
 export async function mapReturnOrder(orderCode, returnTrackingNumber, returnReason = ''){ return (await api.post(`/orders/${encodeURIComponent(orderCode)}/map-return`, { returnTrackingNumber, returnReason })).data; }
 export async function saveOrder(data){ return (await api.post('/orders', data)).data; }
 export async function importOrders(file){ const fd=new FormData(); fd.append('file', file); return (await api.post('/orders/import-excel', fd)).data; }
-export async function syncSapoOrders(date){ return (await api.post('/orders/sync-sapo',{date})).data; }
+export async function syncSapoOrders(date, fromTime, toTime){ return (await api.post('/orders/sync-sapo',{ date, fromTime, toTime })).data; }
 export async function getCameras(){ return (await api.get('/cameras')).data; }
 export async function addCamera(data){ return (await api.post('/cameras', data)).data; }
 export async function deleteCamera(id){ return (await api.delete(`/cameras/${id}`)).data; }

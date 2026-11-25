@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Alert, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tabs, Tag, Upload, message, Statistic, Image } from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tabs, Tag, Upload, message, Statistic, Image, TimePicker } from 'antd';
 import { CameraOutlined, CheckCircleOutlined, CloudUploadOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FullscreenExitOutlined, FullscreenOutlined, LoginOutlined, LogoutOutlined, PlusOutlined, QrcodeOutlined, ReloadOutlined, RollbackOutlined, SearchOutlined, UserOutlined, VideoCameraOutlined, PauseCircleOutlined, PlayCircleOutlined, PictureOutlined } from '@ant-design/icons';
 import Hls from 'hls.js';
 import dayjs from 'dayjs';
@@ -729,6 +729,7 @@ function OrdersAdmin() {
   const [q, setQ] = useState('');
   const [detailOpen, setDetailOpen] = useState(false), [detail, setDetail] = useState(null), [detailLoading, setDetailLoading] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false), [syncDate, setSyncDate] = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [fromTime, setFromTime] = useState(null), [toTime, setToTime] = useState(null);
   const [form] = Form.useForm(), [syncing, setSyncing] = useState(false);
   const refresh = () => getOrders(q).then(setRows);
   useEffect(() => { const t = setTimeout(() => refresh(), 250); return () => clearTimeout(t); }, [q]);
@@ -737,8 +738,9 @@ function OrdersAdmin() {
     if (!syncDate) return message.warning('Vui lòng chọn ngày đồng bộ');
     setSyncing(true);
     try {
-      const r = await syncSapoOrders(syncDate);
-      message.success(`Ngày ${syncDate}: tạo mới ${r.created ?? r.success ?? 0}, cập nhật ${r.updated ?? 0}${r.failed ? `, ${r.failed} lỗi` : ''}`);
+      const timeStr = (fromTime || toTime) ? ` (${fromTime || '00:00'} - ${toTime || '23:59'})` : '';
+      const r = await syncSapoOrders(syncDate, fromTime, toTime);
+      message.success(`Ngày ${syncDate}${timeStr}: tạo mới ${r.created ?? r.success ?? 0}, cập nhật ${r.updated ?? 0}${r.skipped ? `, bỏ qua ${r.skipped}` : ''}${r.failed ? `, ${r.failed} lỗi` : ''}`);
       setSyncOpen(false);
       refresh();
     } catch (e) { message.error(e.response?.data?.message || 'Đồng bộ Sapo thất bại'); }
@@ -776,9 +778,18 @@ function OrdersAdmin() {
       { title: 'Tổng SL', dataIndex: 'TotalQty' },
       { title: 'Chi tiết', fixed: 'right', width: 120, render: (_, r) => <Button className="viewOrderBtn" size="small" icon={<EyeOutlined />} onClick={() => viewDetail(r)}>Xem</Button> }
     ]} />
-    <Modal open={syncOpen} onCancel={() => !syncing && setSyncOpen(false)} onOk={syncSapo} okText="Bắt đầu đồng bộ" cancelText="Hủy" confirmLoading={syncing} title="Đồng bộ đơn hàng Sapo theo ngày">
-      <Form layout="vertical">
-        <Form.Item label="Ngày cần đồng bộ" required>
+    <Modal
+      open={syncOpen}
+      onCancel={() => !syncing && setSyncOpen(false)}
+      onOk={syncSapo}
+      okText="Bắt đầu đồng bộ"
+      cancelText="Hủy"
+      confirmLoading={syncing}
+      title="Đồng bộ đơn hàng Sapo theo ngày & giờ"
+      width={540}
+    >
+      <Form layout="vertical" style={{ marginTop: 12 }}>
+        <Form.Item label={<span style={{ color: '#ffffff', fontWeight: 600 }}>Ngày cần đồng bộ</span>} required style={{ marginBottom: 14 }}>
           <DatePicker
             value={syncDate ? dayjs(syncDate) : null}
             onChange={value => setSyncDate(value ? value.format('YYYY-MM-DD') : '')}
@@ -786,11 +797,77 @@ function OrdersAdmin() {
             placeholder="Chọn ngày đồng bộ"
             allowClear={false}
             inputReadOnly
-            style={{ width: '100%' }}
+            style={{ width: '100%', height: 40, borderRadius: 8 }}
           />
         </Form.Item>
+
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Item label={<span style={{ color: '#ffffff', fontWeight: 600 }}>Từ mấy giờ (Bắt đầu)</span>} style={{ marginBottom: 8 }}>
+              <TimePicker
+                value={fromTime ? dayjs(fromTime, 'HH:mm') : null}
+                onChange={time => setFromTime(time ? time.format('HH:mm') : null)}
+                format="HH:mm"
+                placeholder="00:00 (Đầu ngày)"
+                allowClear
+                style={{ width: '100%', height: 40, borderRadius: 8 }}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label={<span style={{ color: '#ffffff', fontWeight: 600 }}>Đến mấy giờ (Kết thúc)</span>} style={{ marginBottom: 8 }}>
+              <TimePicker
+                value={toTime ? dayjs(toTime, 'HH:mm') : null}
+                onChange={time => setToTime(time ? time.format('HH:mm') : null)}
+                format="HH:mm"
+                placeholder="23:59 (Cuối ngày)"
+                allowClear
+                style={{ width: '100%', height: 40, borderRadius: 8 }}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
+          <Button
+            size="small"
+            style={{ fontSize: 12, borderRadius: 6, color: (!fromTime && !toTime) ? '#00e5ff' : '#a0c4dc', borderColor: (!fromTime && !toTime) ? '#00e5ff' : 'rgba(255,255,255,0.15)', background: (!fromTime && !toTime) ? 'rgba(0, 229, 255, 0.12)' : 'rgba(255,255,255,0.04)' }}
+            onClick={() => { setFromTime(null); setToTime(null); }}
+          >
+            Cả ngày (00:00 - 23:59)
+          </Button>
+          <Button
+            size="small"
+            style={{ fontSize: 12, borderRadius: 6, color: (fromTime === '08:00' && toTime === '12:00') ? '#00e5ff' : '#a0c4dc', borderColor: (fromTime === '08:00' && toTime === '12:00') ? '#00e5ff' : 'rgba(255,255,255,0.15)', background: (fromTime === '08:00' && toTime === '12:00') ? 'rgba(0, 229, 255, 0.12)' : 'rgba(255,255,255,0.04)' }}
+            onClick={() => { setFromTime('08:00'); setToTime('12:00'); }}
+          >
+            Ca sáng (08:00 - 12:00)
+          </Button>
+          <Button
+            size="small"
+            style={{ fontSize: 12, borderRadius: 6, color: (fromTime === '12:00' && toTime === '18:00') ? '#00e5ff' : '#a0c4dc', borderColor: (fromTime === '12:00' && toTime === '18:00') ? '#00e5ff' : 'rgba(255,255,255,0.15)', background: (fromTime === '12:00' && toTime === '18:00') ? 'rgba(0, 229, 255, 0.12)' : 'rgba(255,255,255,0.04)' }}
+            onClick={() => { setFromTime('12:00'); setToTime('18:00'); }}
+          >
+            Ca chiều (12:00 - 18:00)
+          </Button>
+          <Button
+            size="small"
+            style={{ fontSize: 12, borderRadius: 6, color: (fromTime === '18:00' && toTime === '23:59') ? '#00e5ff' : '#a0c4dc', borderColor: (fromTime === '18:00' && toTime === '23:59') ? '#00e5ff' : 'rgba(255,255,255,0.15)', background: (fromTime === '18:00' && toTime === '23:59') ? 'rgba(0, 229, 255, 0.12)' : 'rgba(255,255,255,0.04)' }}
+            onClick={() => { setFromTime('18:00'); setToTime('23:59'); }}
+          >
+            Ca tối (18:00 - 23:59)
+          </Button>
+        </div>
       </Form>
-      <Alert type="info" showIcon title="Hệ thống gọi SAPO_GetDanhSachDonHang_TheoNgay tại N-ERP, lấy Id_Sapo rồi tải chi tiết từ API Sapo." />
+      <Alert
+        type="info"
+        showIcon
+        message={
+          <span style={{ fontSize: 13 }}>
+            Hệ thống gọi <b>SAPO_GetDanhSachDonHang_TheoNgay</b> tại N-ERP, lọc theo khung giờ (nếu có), lấy Id_Sapo rồi tải chi tiết từ API Sapo.
+          </span>
+        }
+      />
     </Modal>
     <Modal open={detailOpen} onCancel={() => setDetailOpen(false)} footer={<Button onClick={() => setDetailOpen(false)}>Đóng</Button>} width={860} title={detail ? `Chi tiết đơn hàng ${detail.OrderCode}` : 'Chi tiết đơn hàng'}>
       {detail && <div className="orderDetailBox">

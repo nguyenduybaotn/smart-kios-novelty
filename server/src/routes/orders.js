@@ -45,9 +45,9 @@ router.post('/:code/map-return', async (req,res,next)=>{
 
 router.post('/sync-sapo', async (req,res,next)=>{
   try{
-    const { date }=req.body || {};
+    const { date, fromTime, toTime }=req.body || {};
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return res.status(400).json({message:'Vui lòng chọn ngày đồng bộ'});
-    res.json(await syncPendingSapoOrders(date));
+    res.json(await syncPendingSapoOrders(date, { fromTime, toTime }));
   }catch(e){next(e)}
 });
 

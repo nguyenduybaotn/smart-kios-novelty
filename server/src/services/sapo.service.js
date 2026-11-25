@@ -205,17 +205,70 @@ export async function saveSapoOrder(order, { erpOid, erpOrderNo, loaiDonHang }={
   }catch(error){ await tx.rollback(); throw error; }
 }
 
-export async function syncPendingSapoOrders(syncDate){
+export async function syncPendingSapoOrders(syncDate, { fromTime, toTime } = {}){
   await ensureSapoSchema();
   const pool=await getPool();
   const erp=await getSapoOrderIdsByDate(syncDate);
   const results=[];
-  sapoSyncLog('info',{date:syncDate,message:`Bắt đầu đồng bộ ${erp.ids.length} đơn Sapo từ ${erp.rows.length} dòng ERP, giới hạn ${sapoRequestIntervalMs()}ms/request (~${(1000/sapoRequestIntervalMs()).toFixed(2)} request/giây)`});
+
+  const hasTimeFilter = Boolean(fromTime || toTime);
+  const startTime = fromTime ? String(fromTime).slice(0, 5) : '00:00';
+  const endTime = toTime ? String(toTime).slice(0, 5) : '23:59';
+
+  sapoSyncLog('info',{
+    date:syncDate,
+    message:`Bắt đầu đồng bộ ${erp.ids.length} đơn Sapo từ ${erp.rows.length} dòng ERP${hasTimeFilter ? ` (Khung giờ: ${startTime} - ${endTime})` : ''}, giới hạn ${sapoRequestIntervalMs()}ms/request (~${(1000/sapoRequestIntervalMs()).toFixed(2)} request/giây)`
+  });
+
+  // Nếu có lọc giờ, thử pre-filter lấy các ID Sapo trong khung giờ để tăng tốc độ đồng bộ
+  let validSapoIdsInWindow = null;
+  if(hasTimeFilter){
+    try {
+      const { baseUrl, auth } = config();
+      const startUtc = new Date(`${syncDate}T${startTime}:00+07:00`).toISOString();
+      const endUtc = new Date(`${syncDate}T${endTime}:59+07:00`).toISOString();
+      const url = `${baseUrl}/admin/orders.json?created_on_min=${encodeURIComponent(startUtc)}&created_on_max=${encodeURIComponent(endUtc)}&limit=250`;
+      const res = await fetch(url, { headers: { Authorization: auth, Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+      if(res.ok){
+        const body = await res.json();
+        if(Array.isArray(body?.orders)){
+          validSapoIdsInWindow = new Set(body.orders.map(o => String(o.id)));
+          sapoSyncLog('info', { date: syncDate, message: `Pre-filter Sapo API: phát hiện ${validSapoIdsInWindow.size} đơn trong khung giờ ${startTime} - ${endTime}` });
+        }
+      }
+    } catch(err) {
+      sapoSyncLog('warn', { date: syncDate, message: `Pre-filter Sapo API không thành công (${err.message}), sẽ lọc giờ trực tiếp cho từng đơn` });
+    }
+  }
+
   for(const idSapo of erp.ids){
+    // Bỏ qua nhanh nếu đơn không nằm trong danh sách pre-filter khung giờ
+    if(validSapoIdsInWindow && !validSapoIdsInWindow.has(String(idSapo))){
+      results.push({ ok: true, action: 'skipped', idSapo: String(idSapo), message: `Ngoài khung giờ ${startTime} - ${endTime}` });
+      continue;
+    }
+
     const current=(await pool.request().input('id',sql.BigInt,idSapo).query('SELECT OrderId,OrderCode,SapoSyncedAt,Status FROM Orders WHERE Id_Sapo=@id')).recordset[0];
     let sapoOrder=null;
     try{
       sapoOrder=await fetchSapoOrderWithRateLimit(idSapo,{date:syncDate});
+
+      // Lọc chính xác theo giờ tạo đơn (Giờ Việt Nam GMT+7)
+      if(hasTimeFilter){
+        const orderDate = new Date(sapoOrder.created_on || sapoOrder.processed_on);
+        const orderTimeStr = orderDate.toLocaleTimeString('vi-VN', {
+          timeZone: 'Asia/Ho_Chi_Minh',
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        if(orderTimeStr < startTime || orderTimeStr > endTime){
+          sapoSyncLog('info', { date: syncDate, idSapo, message: `Bỏ qua đơn (giờ tạo ${orderTimeStr} ngoài khung ${startTime} - ${endTime})` });
+          results.push({ ok: true, action: 'skipped', idSapo: String(idSapo), message: `Giờ tạo ${orderTimeStr} ngoài khung ${startTime} - ${endTime}` });
+          continue;
+        }
+      }
+
       const tracks=getTrackingNumbers(sapoOrder);
       if(tracks.length===0) throw new Error('Chưa có mã vận đơn');
       // Lấy OID, OrderNo & LoaiDonHang từ ERP rows map
@@ -238,13 +291,21 @@ export async function syncPendingSapoOrders(syncDate){
     }
   }
   const summary={
-    date:syncDate, sourceRows:erp.rows.length, total:erp.ids.length,
-    success:results.filter(x=>x.ok).length,
+    date:syncDate,
+    fromTime: hasTimeFilter ? startTime : null,
+    toTime: hasTimeFilter ? endTime : null,
+    sourceRows:erp.rows.length,
+    total:erp.ids.length,
+    success:results.filter(x=>x.ok && x.action!=='skipped').length,
     created:results.filter(x=>x.action==='created').length,
     updated:results.filter(x=>x.action==='updated').length,
-    skipped:0,
-    failed:results.filter(x=>!x.ok).length, results
+    skipped:results.filter(x=>x.action==='skipped').length,
+    failed:results.filter(x=>!x.ok).length,
+    results
   };
-  sapoSyncLog(summary.failed?'warn':'info',{date:syncDate,message:`Hoàn tất: success=${summary.success}, failed=${summary.failed}, created=${summary.created}, updated=${summary.updated}`});
+  sapoSyncLog(summary.failed?'warn':'info',{
+    date:syncDate,
+    message:`Hoàn tất: success=${summary.success}, created=${summary.created}, updated=${summary.updated}, skipped=${summary.skipped}, failed=${summary.failed}`
+  });
   return summary;
 }
