@@ -84,6 +84,7 @@ async function main() {
   // Tạm tắt kiểm tra ràng buộc ngoại (FK) trong phiên nạp để tránh cảnh báo bản ghi mồ côi
   try {
     await dbClient.query("SET session_replication_role = 'replica';");
+    await dbClient.query('ALTER TABLE IF EXISTS "Orders" ALTER COLUMN "UpdatedAt" DROP NOT NULL;');
   } catch (_) {}
 
   const fileStats = fs.statSync(sqlFile);
@@ -113,9 +114,16 @@ async function main() {
 
     // Kết thúc câu lệnh bằng dấu ;
     if (trimmed.endsWith(';')) {
+      if (currentCommand.includes('CREATE TABLE IF NOT EXISTS "Orders"')) {
+        currentCommand = currentCommand.replace(/"UpdatedAt"\s+TIMESTAMP\s+NOT\s+NULL/gi, '"UpdatedAt" TIMESTAMP');
+      }
+
       try {
         await dbClient.query(currentCommand);
         commandCount++;
+        if (currentCommand.includes('CREATE TABLE IF NOT EXISTS "Orders"')) {
+          await dbClient.query('ALTER TABLE IF EXISTS "Orders" ALTER COLUMN "UpdatedAt" DROP NOT NULL;').catch(() => null);
+        }
       } catch (cmdErr) {
         // Bỏ qua lỗi trùng lặp nếu đã có
         if (!cmdErr.message.includes('already exists')) {
@@ -152,8 +160,9 @@ async function main() {
   console.log(`  - Camera:    ${camerasCount} camera`);
   console.log(`  - Tài khoản: ${usersCount} người dùng`);
 
-  // Khôi phục lại trạng thái kiểm tra ràng buộc ban đầu
+  // Khôi phục lại trạng thái kiểm tra ràng buộc ban đầu và lấp đầy UpdatedAt
   try {
+    await dbClient.query('UPDATE "Orders" SET "UpdatedAt" = COALESCE("UpdatedAt", "CreatedAt", CURRENT_TIMESTAMP) WHERE "UpdatedAt" IS NULL;');
     await dbClient.query("SET session_replication_role = 'origin';");
   } catch (_) {}
 

@@ -109,7 +109,7 @@ async function main() {
     "ErpProcessedAt" TIMESTAMP,
     "ErpProcessResult" VARCHAR(2000),
     "CreatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "UpdatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "UpdatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );\n\n`);
 
   stream.write(`CREATE TABLE IF NOT EXISTS "OrderItems" (
