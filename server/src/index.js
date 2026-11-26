@@ -14,7 +14,7 @@ import { requireAuth } from './middleware.auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 const app = express();
 const port = Number(process.env.PORT || 8095);
 const storageDir = process.env.STORAGE_DIR || './storage';

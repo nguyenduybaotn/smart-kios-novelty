@@ -22,8 +22,9 @@ async function waitSapoRateLimit(){
 }
 
 function config(){
-  const baseUrl=(process.env.SAPO_BASE_URL || '').replace(/\/$/,'');
-  const key=process.env.SAPO_API_KEY || '', secret=process.env.SAPO_API_SECRET || '';
+  const baseUrl=(process.env.SAPO_BASE_URL || 'https://noveltyhcm.mysapo.net').trim().replace(/\/$/,'');
+  const key=(process.env.SAPO_API_KEY || '25c723032e9841e390f6dafb01ce126f').trim();
+  const secret=(process.env.SAPO_API_SECRET || '9e11ba0c6e61449da706758056457339').trim();
   if(!baseUrl || !key || !secret) throw new Error('Thiếu cấu hình SAPO_BASE_URL, SAPO_API_KEY hoặc SAPO_API_SECRET');
   return { baseUrl, auth:`Basic ${Buffer.from(`${key}:${secret}`).toString('base64')}` };
 }
