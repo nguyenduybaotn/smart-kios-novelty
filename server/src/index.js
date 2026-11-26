@@ -12,7 +12,9 @@ import packing from './routes/packing.js';
 import auth from './routes/auth.js';
 import { requireAuth } from './middleware.auth.js';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const app = express();
 const port = Number(process.env.PORT || 8095);
 const storageDir = process.env.STORAGE_DIR || './storage';
@@ -89,8 +91,6 @@ app.use('/api/cameras', requireAuth, cameras);
 app.use('/api/packing', requireAuth, packing);
 
 // Phục vụ giao diện người dùng Production đã đóng gói từ client/dist
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const clientDistCandidates = [
   path.resolve(__dirname, '../../client/dist'),
   path.resolve('../client/dist'),
